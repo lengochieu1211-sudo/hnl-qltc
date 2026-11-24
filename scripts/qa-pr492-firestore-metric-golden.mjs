@@ -34,7 +34,7 @@ try{
     connectAuthEmulator(auth,'http://127.0.0.1:9099',{disableWarnings:true});connectFirestoreEmulator(db,'127.0.0.1',8080);
     const email=role.toLowerCase()+'-'+nonce+'@example.test';
     const {user}=await createUserWithEmailAndPassword(auth,email,'Pr492-'+nonce);
-    return {db,email,uid:user.uid};
+    return {db,auth,email,uid:user.uid};
   };
   let admin,editor,viewer;
   await step('Three distinct authenticated emulator identities',async()=>{admin=await account('ADMIN');editor=await account('EDITOR');viewer=await account('VIEWER');assert.equal(new Set([admin.uid,editor.uid,viewer.uid]).size,3)});
@@ -100,6 +100,48 @@ try{
   await step('Replaced image invalidates calibration; official saved quantity preserved',async()=>{
     await updateDoc(ref(admin,'floor_plans',floorId),patch(3,{imageAssetId:'qa-new-asset',imageRevision:2}));
     const d=await read(viewer,'floor_plans',floorId);assert.equal(getValidFloorMetricCalibration(d,image).valid,false);assert.equal((await read(viewer,'rooms',roomId)).workVolume,100);
+  });
+  const waitCache=async(fn,label)=>{for(let i=0;i<100;i++){const s=await fn();if(s)return s;await new Promise(r=>setTimeout(r,100));}throw Error(label)};
+  await step('Offline conflicting revision is rejected on reconnect; server quantity and newer revision survive',async()=>{
+    const before=await read(editor,'rooms',roomId);
+    await disableNetwork(editor.db);
+    const queued=updateDoc(ref(editor,'rooms',roomId),patch(before.revision+1,{frameStatus:'Chưa làm'}));
+    const outcome=queued.then(()=>({ok:true}),e=>({ok:false,code:e.code}));
+    try{
+      await waitCache(async()=>{const c=await getDocFromCache(ref(editor,'rooms',roomId));return c.metadata.hasPendingWrites&&c.data()?.frameStatus==='Chưa làm'},'editor pending conflict');
+      await updateDoc(ref(admin,'rooms',roomId),patch(before.revision+1,{frameStatus:'Đã hoàn thành'}));
+      await enableNetwork(editor.db);
+      const result=await outcome;assert.equal(result.ok,false);assert.match(result.code,/permission-denied/);
+      const d=await read(viewer,'rooms',roomId);assert.equal(d.revision,before.revision+1);assert.equal(d.frameStatus,'Đã hoàn thành');assert.equal(d.workVolume,before.workVolume);
+    }finally{await enableNetwork(editor.db)}
+  });
+  await step('Offline queued editor write is rejected after role revocation; no server overwrite',async()=>{
+    const before=await read(editor,'rooms',roomId);
+    await disableNetwork(editor.db);
+    const queued=updateDoc(ref(editor,'rooms',roomId),patch(before.revision+1,{frameStatus:'Chưa làm'}));
+    const outcome=queued.then(()=>({ok:true}),e=>({ok:false,code:e.code}));
+    try{
+      await waitCache(async()=>{const c=await getDocFromCache(ref(editor,'rooms',roomId));return c.metadata.hasPendingWrites&&c.data()?.frameStatus==='Chưa làm'},'editor pending role revocation');
+      await updateDoc(ref(admin,'members',editor.email),{role:'VIEWER'});
+      await enableNetwork(editor.db);
+      const result=await outcome;assert.equal(result.ok,false);assert.match(result.code,/permission-denied/);
+      const d=await read(viewer,'rooms',roomId);assert.equal(d.revision,before.revision);assert.equal(d.frameStatus,before.frameStatus);assert.equal(d.workVolume,before.workVolume);
+    }finally{await enableNetwork(editor.db)}
+  });
+  await step('Auth switch isolates the original pending mutation and only original identity can resume it',async()=>{
+    const before=await read(admin,'rooms',lineId);
+    await disableNetwork(admin.db);
+    const queued=updateDoc(ref(admin,'rooms',lineId),patch(before.revision+1,{frameStatus:'Đang làm'}));queued.catch(()=>{});
+    try{
+      await waitCache(async()=>{const c=await getDocFromCache(ref(admin,'rooms',lineId));return c.metadata.hasPendingWrites&&c.data()?.frameStatus==='Đang làm'},'admin pending before auth switch');
+      await authSdk.signInWithEmailAndPassword(admin.auth,viewer.email,'Pr492-'+nonce);
+      await waitCache(async()=>{const c=await getDocFromCache(ref(admin,'rooms',lineId));return c.exists()&&!c.metadata.hasPendingWrites&&c.data()?.revision===before.revision},'viewer must not see admin mutation overlay');
+      await enableNetwork(admin.db);
+      const d=await read(admin,'rooms',lineId);assert.equal(d.revision,before.revision);assert.equal(d.frameStatus,before.frameStatus);
+      await authSdk.signInWithEmailAndPassword(admin.auth,admin.email,'Pr492-'+nonce);
+      const resumed=await watch(viewer,'rooms',lineId,d=>d.revision===before.revision+1&&d.frameStatus==='Đang làm');
+      assert.equal(resumed.workVolume,before.workVolume);
+    }finally{await enableNetwork(admin.db)}
   });
   report.status='PASS';
 }catch(e){report.status='FAIL';report.error=String(e?.stack||e);process.exitCode=1;console.error(e)}

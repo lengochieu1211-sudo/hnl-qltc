@@ -207,7 +207,7 @@ try{
     await wait(async()=>{const c=await browserCache(peer);return c.exists&&!c.pending&&c.data?.revision===after.revision},'second tab reads committed revision',30000);
     assert(!logs.some(x=>/exclusive access to the persistence layer|falling back to memory/i.test(x.text)), 'second tab fell back to RAM');
     await modal(restarted,lid);
-    const reset=restarted.locator('[data-hnl-pc-v36-room-status="item"]').getByRole('button',{name:'Chưa làm',exact:true}).first();
+    const reset=restarted.locator('[data-hnl-pc-v36-room-status="item"]').getByRole('button',{name:/Chưa làm/}).first();
     await reset.waitFor();
     await M.context.setOffline(true);await restarted.waitForFunction(()=>!navigator.onLine);
     await reset.click();await restarted.getByRole('button',{name:/Lưu thay đổi nghiệm thu/}).click();
@@ -220,6 +220,16 @@ try{
     report.restart.peerHandoffRevision=handed.revision;
     assert(!logs.some(x=>/exclusive access to the persistence layer|falling back to memory/i.test(x.text)), 'lease handoff fell back to RAM');
     await peer.screenshot({path:out+'/two-tab-handoff-synced.png'});
+    // Account switching must re-resolve permission in the same browser profile.
+    await peer.evaluate(async()=>{const m=await import('/src/lib/firebaseBase.ts');if(!m.FIREBASE_EMULATOR_ENABLED)throw Error('not emulator');await m.signInWithEmulatorTestAccount('VIEWER')});
+    await peer.locator('[data-hnl-workspace-module="floorplan"]').waitFor({timeout:45000});
+    await peer.getByAltText('Tầng QA',{exact:true}).first().waitFor({timeout:45000});
+    await modal(peer,lid);
+    await wait(async()=>await peer.locator('[data-hnl-prod-highlight-metric-preview]').count()>0&&await peer.locator('[data-hnl-prod-take-metric-volume]').count()===0,'VIEWER after same-profile ADMIN sign-out',30000);
+    assert.equal(await peer.locator('[data-hnl-prod-metric-toolbar]').count(),0);
+    assert.deepEqual(await read(viewer,'rooms',lid),handed,'account switch must not write room');
+    report.restart.sameProfileViewer=true;
+    await peer.screenshot({path:out+'/same-profile-viewer.png'});
     // Restarted page has been closed after the lease-handoff check.
   }finally{await M.context.setOffline(false).catch(()=>{});persist()}
  });
