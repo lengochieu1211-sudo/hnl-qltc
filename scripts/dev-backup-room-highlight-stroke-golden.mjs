@@ -16,8 +16,9 @@ assert(source.slice(svgStart,svgStart+180).includes('viewBox="0 0 100 100" prese
 const shapes = [...saved.matchAll(/<(polyline|polygon|rect)\b[\s\S]*?\/>/g)].map(m => m[0]);
 assert.equal(shapes.length,4, 'Expected two polylines, polygon and rectangle');
 assert.equal(shapes.filter(x=>x.includes('vectorEffect="non-scaling-stroke"')).length,4,'All saved-room visible strokes must be non-scaling');
-assert.equal(shapes.filter(x=>/strokeWidth=\{isSelectedForDrag \? 2\.6 : 2\}/.test(x)).length,3,'Highlight foreground widths must be uniform');
-assert.equal(shapes.filter(x=>/strokeWidth=\{4\}/.test(x)).length,1,'Polyline glow width must be uniform');
+assert(source.includes('const savedRoomStrokeScale = roomHighlightStrokePercent / 100;'), 'Saved stroke thickness must respect the current preference without zoom scaling');
+assert.equal(shapes.filter(x=>x.includes('strokeWidth={(isShapeDrawing ? 1.15 : isSelectedForDrag ? 2.6 : 2) * savedRoomStrokeScale}')).length,3,'Highlight foreground widths must be uniform and use the same saved preference');
+assert.equal(shapes.filter(x=>x.includes('strokeWidth={4 * savedRoomStrokeScale}')).length,1,'Polyline glow width must follow the saved preference');
 assert(!shapes.some(x=>/strokeWidth=.*strokeScale/.test(x)), 'Saved room stroke must not depend on 0-100 SVG scale');
 assert.equal(shapes.filter(x=>/onClick=/.test(x)).length,3,'Room selection must retain click events');
 assert.equal(shapes.filter(x=>/onTouchStart=/.test(x)).length,3,'Room touch events must be preserved');
