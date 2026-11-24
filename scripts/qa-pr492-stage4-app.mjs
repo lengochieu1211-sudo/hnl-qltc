@@ -233,6 +233,60 @@ try{
     // Restarted page has been closed after the lease-handoff check.
   }finally{await M.context.setOffline(false).catch(()=>{});persist()}
  });
+ await step('Migrate existing single-tab IndexedDB pending batch to multi-tab without clearing storage',async()=>{
+  // Use the exact browser SDK modules that the real Vite App already loaded.
+  const urls=await A.page.evaluate(()=>Object.fromEntries(['app','auth','firestore'].map(name=>[name,performance.getEntriesByType('resource').map(e=>e.name).find(u=>u.includes('/.vite/deps/firebase_'+name+'.js?'))])));
+  for(const key of ['app','auth','firestore'])assert(urls[key]&&new URL(urls[key]).origin===origin,'missing local Vite SDK '+key);
+  const context=await browser.newContext({viewport:{width:390,height:844},locale:'vi-VN',hasTouch:true,isMobile:true,serviceWorkers:'block'});
+  await context.route('**/*',async route=>{const url=route.request().url();if(url===img||url===replacement){await route.fulfill({contentType:'image/svg+xml',body:url===img?svg:svg.replace('#e6e9ee','#cbd5e1')});return}const u=new URL(url);if(['127.0.0.1','localhost'].includes(u.hostname)&&['4178','8080','9099','9199'].includes(u.port)){await route.continue();return}if(blocked.test(url))report.backendAttempts.push(url.split('?')[0]);report.blockedExternal.push(u.origin);await route.abort()});
+  await context.addInitScript(({pid})=>{sessionStorage.setItem('active_project_id',pid);sessionStorage.setItem('qlct_active_tab_v1','floorplan')},{pid});
+  const legacyUrl=origin+'/qa-legacy-cache.html';
+  await context.route(legacyUrl,route=>route.fulfill({contentType:'text/html',body:'<!doctype html><title>Disposable legacy cache fixture</title>'}));
+  const old=await context.newPage();pages.push(old);await old.goto(legacyUrl);
+  const before=await read(viewer,'rooms',lid);
+  const pending=await old.evaluate(async({urls,project,pid,lid,revision})=>{
+    const apps=await import(urls.app),authSdk=await import(urls.auth),sdk=await import(urls.firestore);
+    const app=apps.initializeApp({apiKey:'demo-hnl-qltc-key',authDomain:project+'.firebaseapp.com',projectId:project,storageBucket:project+'.firebasestorage.app',messagingSenderId:'000000000000',appId:'1:000000000000:web:hnlqltcemulatordev',firestoreDatabaseId:'(default)'});
+    const auth=authSdk.getAuth(app);authSdk.connectAuthEmulator(auth,'http://127.0.0.1:9099',{disableWarnings:true});
+    await authSdk.setPersistence(auth,authSdk.browserLocalPersistence);
+    await authSdk.signInWithEmailAndPassword(auth,'admin@hnl.test','HNL-Emulator-123!');
+    // EXACT old configuration: default persistentLocalCache() (single-tab).
+    const db=sdk.initializeFirestore(app,{localCache:sdk.persistentLocalCache(),experimentalAutoDetectLongPolling:true},'(default)');
+    sdk.connectFirestoreEmulator(db,'127.0.0.1',8080);
+    const target=sdk.doc(db,'projects',pid,'rooms',lid);
+    const base=await sdk.getDocFromServer(target);if(base.data()?.revision!==revision)throw Error('legacy fixture stale');
+    await sdk.disableNetwork(db);
+    sdk.updateDoc(target,{revision:revision+1,updatedAt:Date.now(),frameStatus:'Đang làm'}).catch(()=>{});
+    for(let i=0;i<80;i++){const snap=await sdk.getDocFromCache(target);if(snap.metadata.hasPendingWrites&&snap.data()?.revision===revision+1)return {pending:true,revision:snap.data().revision,uid:auth.currentUser.uid};await new Promise(r=>setTimeout(r,100))}
+    throw Error('legacy mutation did not reach persistent SDK queue');
+  },{urls,project,pid,lid,revision:before.revision});
+  assert.equal(pending.uid,admin.uid);assert.equal((await read(viewer,'rooms',lid)).revision,before.revision);
+  report.legacyMigration={beforeRevision:before.revision,pending};persist();
+  // No terminate/clearIndexedDbPersistence or database deletion: close as an old app would.
+  await old.close();
+  const upgraded=await context.newPage();pages.push(upgraded);const warnings=[];upgraded.on('console',m=>{if(/exclusive access|falling back to memory/i.test(m.text()))warnings.push(m.text())});upgraded.on('pageerror',e=>report.errors.push('legacy migration: '+String(e)));
+  await upgraded.goto(origin,{waitUntil:'domcontentloaded',timeout:45000});await upgraded.getByAltText('Tầng QA',{exact:true}).first().waitFor({timeout:45000});
+  const after=await wait(async()=>{const d=await read(viewer,'rooms',lid);return d?.revision===before.revision+1&&d.frameStatus==='Đang làm'?d:false},'legacy pending batch migrated and committed',45000);
+  for(const k of ['id','floorId','categoryVolumes','categoryVolumeUnits','x','y','width','height','points'])assert.deepEqual(after[k],before[k]);
+  assert.deepEqual(warnings,[]);report.legacyMigration.afterRevision=after.revision;report.legacyMigration.cacheWarnings=warnings;
+  await upgraded.screenshot({path:out+'/legacy-single-tab-migrated.png'});
+  // Google-provider identity from an Auth Emulator mock ID token, never real Google.
+  const fake=await upgraded.evaluate(async({url})=>{
+    const m=await import('/src/lib/firebaseBase.ts');if(!m.FIREBASE_EMULATOR_ENABLED)throw Error('not emulator');
+    const a=await import(url);await a.signOut(m.auth);
+    const result=await a.signInWithCredential(m.auth,a.GoogleAuthProvider.credential(JSON.stringify({sub:'qa-oauth-outside-project',email:'oauth-outsider@hnl.test',email_verified:true})));
+    return {email:result.user.email,provider:result.user.providerData.map(x=>x.providerId)};
+  },{url:urls.auth});
+  assert.equal(fake.email,'oauth-outsider@hnl.test');assert(fake.provider.includes('google.com'));
+  const denied=await upgraded.evaluate(async({url,pid,lid})=>{
+    const {db,FIREBASE_EMULATOR_ENABLED}=await import('/src/lib/firebaseBase.ts');if(!FIREBASE_EMULATOR_ENABLED)throw Error('not emulator');
+    const sdk=await import(url);try{await sdk.getDocFromServer(sdk.doc(db,'projects',pid,'rooms',lid));return false}catch(e){return String(e.code).includes('permission-denied')}
+  },{url:urls.firestore,pid,lid});
+  assert(denied,'mock Google account without membership must not read room');
+  await wait(async()=>await upgraded.getByAltText('Tầng QA',{exact:true}).count()===0,'old account project UI must disappear',30000);
+  report.mockGoogleProvider={provider:fake.provider,unauthorizedReadDenied:true,oldProjectUIHidden:true};
+  await upgraded.screenshot({path:out+'/mock-google-outsider.png'});
+ });
  await step('No attempted real backend and no uncaught browser errors',async()=>{assert.deepEqual(report.backendAttempts,[]);assert.deepEqual(report.errors,[])});
  report.status='PASS';
 }catch(e){report.status='FAIL';report.error=String(e?.stack||e);console.error(e);for(let i=0;i<pages.length;i++)await pages[i].screenshot({path:out+'/failure-'+i+'.png',timeout:5000}).catch(()=>{});}
