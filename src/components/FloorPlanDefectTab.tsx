@@ -72,6 +72,7 @@ import { UndoRedoControls } from './UndoRedoControls';
 import { getRoomColorStyle, ROOM_COLOR_PALETTE } from '../utils/colorPalette';
 import { getRoomMapStageLabels, getRoomMapConstructionIcon, getRoomMapInspectionIcon } from '../utils/roomMapStageLabels';
 import { FloorMetricCalibrator } from './FloorMetricCalibrator';
+import { floorMetricSourceKey } from '../utils/floorMetricGeometry';
 import { getDefectOverdueInfo, getDefectShortCode } from '../utils/defectUtils';
 import { addLocalCalendarDaysToDateInput, formatDateDDMMYYYY, parseLegacyTimestamp, toLocalDateInputValue } from '../utils/dateFormatter';
 import { vietnamDefectCreatedAtInput } from '../utils/vietnamBusinessDate';
@@ -8279,7 +8280,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     )}
 
                     {activeFloor && <FloorMetricCalibrator
-                      key={activeFloor.id} floor={activeFloor} imageContainer={imageContainerRef.current}
+                      key={JSON.stringify([floorMetricSourceKey(activeFloor), activeFloor.imageUrl])} floor={activeFloor} imageContainer={imageContainerRef.current}
                       rotation={rotation} active={isMetricCalibrating} canSave={canManageStructure && Boolean(onUpdateFloorPlan)}
                       onClose={()=>setIsMetricCalibrating(false)}
                       onSave={(floorId,calibration)=>onUpdateFloorPlan?.(floorId,{highlightMetricCalibration:calibration})}
