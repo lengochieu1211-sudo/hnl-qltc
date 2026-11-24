@@ -140,7 +140,7 @@ function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
   }
   return merged;
 }
-import { subscribeToProjectRealtime, saveProjectDiffsToCloud, commitDirectHighlightCas, queueProjectDiffsToFirestoreOffline, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, subscribeCurrentUserPinResetRealtime, signOutGoogle, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, subscribeProjectSharedSettings, fetchProjectSharedSettingsSnapshot, saveProjectSharedSettings, saveProjectAuditLog, loadProjectFromFirestoreCache, fetchProjectFromCloud, updateProjectPresence } from './lib/firebase';
+import { subscribeToProjectRealtime, saveProjectDiffsToCloud, commitDirectHighlightCas, commitHighlightCountCas, commitFloorCalibrationCas, queueProjectDiffsToFirestoreOffline, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, subscribeCurrentUserPinResetRealtime, signOutGoogle, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, subscribeProjectSharedSettings, fetchProjectSharedSettingsSnapshot, saveProjectSharedSettings, saveProjectAuditLog, loadProjectFromFirestoreCache, fetchProjectFromCloud, updateProjectPresence } from './lib/firebase';
 import { REALTIME_STATE_KEYS, STATE_KEY_TO_CLOUD_NAME } from './config/realtimeCollections';
 import { hasPendingChatOutboxForCurrentUser } from './lib/chatService';
 import { FIREBASE_ONLY_RUNTIME, LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED, LEGACY_LOCAL_IMPORT_ENABLED } from './config/runtimeArchitecture';
@@ -161,7 +161,7 @@ import {
 } from './types';
 import { canApplyDirectHighlightShapes, canApplyDirectHighlightQuantity } from './utils/floorHighlightDirectShapes';
 import type { DirectHighlightCommitRequest } from './utils/floorHighlightDirectShapes';
-import { floorMetricSourceKey } from './utils/highlightMetricGeometry';
+import { floorMetricSourceKey, canSaveFloorCalibration, type FloorCalibrationSaveRequest } from './utils/highlightMetricGeometry';
 import { GoogleAuthHeader } from './components/GoogleAuthHeader';
 import { OfflineSyncBanner } from './components/OfflineSyncBanner';
 import { ProjectManagerModal } from './components/ProjectManagerModal';
@@ -183,7 +183,7 @@ import { confirmAsync } from './utils/confirmAsync';
 import { normalizeImportedData } from './utils/dataNormalizer';
 import { reconcileBackupSnapshot } from './utils/backupSnapshot';
 import { computeDerivedWorkVolumes } from './utils/workVolumeComputation';
-import { applyHighlightCount, canSaveHighlightCount, type HighlightCountSaveRequest } from './utils/highlightCountPoints';
+import { canSaveHighlightCount, type HighlightCountSaveRequest } from './utils/highlightCountPoints';
 import { compareWorkVolumeManualOrder, reorderVisibleWorkVolumes } from './utils/catalogDisplayOrder';
 import { canonicalNormCategoryIds, canonicalWorkCategoryId, resolveUniqueMaterialIdentity, resolveWorkVolumeRef, validateInventoryOutProvenance, validateMaterialNormCatalog, validateWorkVolumeCatalog } from './utils/linkageIntegrity';
 import { reconcileMaterialNormWorkCategoryLinks } from './utils/projectReconciliation';
@@ -7504,15 +7504,57 @@ function AuthenticatedApp() {
 
   // Point count is an explicit stage-scoped save. No historical room quantity,
   // other stage, acceptance or drawing geometry may be rewritten by this action.
-  const handleSaveHighlightCount = (request: HighlightCountSaveRequest) => {
-    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
-    updateAppData((prev) => {
-      const existing = prev.roomProgressList.find(room => room.id === request.roomId);
-      if (!existing || !canSaveHighlightCount(existing, request)) return prev;
-      const patched = applyHighlightCount(existing, request);
-      return { ...prev, roomProgressList: prev.roomProgressList.map(room => room.id === request.roomId
-        ? { ...patched, updatedAt: Math.max(Date.now(), existing.updatedAt + 1) } : room) };
+  const requireHighlightOnline = (key: 'roomProgressList' | 'floorPlans', id:string) => {
+    if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole) || ROOM_SIDECAR_DEMO_MODE)
+      throw new Error('Không có quyền lưu Highlight trong chế độ hiện tại.');
+    if (!FIREBASE_ONLY_RUNTIME || !isOnline || !cloudInitialReady || projectRoleSource !== 'cloud' ||
+        !projectRoleAllowed || businessDataSource !== 'cloud' || activeProjectIdRef.current !== activeProjectId)
+      throw new Error('Đang offline hoặc chưa tải xong Firestore. Giữ bản nháp, kết nối lại rồi lưu.');
+    const current = present[key].find(r=>r.id===id);
+    const synced = lastSyncedPresentRef.current?.[key].find(r=>r.id===id);
+    if (!current || !synced || current.updatedAt !== synced.updatedAt || current.revision !== synced.revision ||
+        Number(localDirtyRevisionRef.current[key] || 0) > 0 || firestorePendingWriteCountRef.current > 0)
+      throw new Error('Dữ liệu còn thay đổi chưa đồng bộ. Chưa lưu; hãy thử lại sau khi đồng bộ.');
+    return activeProjectId;
+  };
+  const handleSaveHighlightCount = async (request: HighlightCountSaveRequest):Promise<RoomProgressItem> => {
+    const projectId = requireHighlightOnline('roomProgressList',request.roomId);
+    const writerUid=getCurrentRealFirebaseUser()?.uid;
+    if(!writerUid)throw new Error('Chưa xác minh tài khoản lưu.');
+    const existing = present.roomProgressList.find(room => room.id === request.roomId);
+    if (!canSaveHighlightCount(existing, request)) throw new Error('Phòng/hạng mục đã thay đổi. Chưa lưu.');
+    let saved:RoomProgressItem | undefined;
+    await queueCloudSave(async()=>{
+      if (getCurrentRealFirebaseUser()?.uid !== writerUid || activeProjectIdRef.current !== projectId || Number(localDirtyRevisionRef.current.roomProgressList || 0) > 0)
+        throw new Error('Dự án hoặc dữ liệu đã thay đổi. Chưa lưu.');
+      saved = await commitHighlightCountCas(projectId,request);
     });
+    if (!saved || getCurrentRealFirebaseUser()?.uid !== writerUid || activeProjectIdRef.current !== projectId) throw new Error('Không thể xác nhận trong dự án hiện tại; kiểm tra lại dữ liệu đã lưu.');
+    const acknowledged = saved as RoomProgressItem;
+    const update = (rows:RoomProgressItem[])=>rows.map(r=>r.id===acknowledged.id && Number(r.revision||0)<=Number(acknowledged.revision||0)?acknowledged:r);
+    setPresent(prev=>({...prev,roomProgressList:update(prev.roomProgressList)}));
+    if(lastSyncedPresentRef.current) lastSyncedPresentRef.current={...lastSyncedPresentRef.current,roomProgressList:update(lastSyncedPresentRef.current.roomProgressList)};
+    return acknowledged;
+  };
+  const handleSaveFloorCalibration = async (request:FloorCalibrationSaveRequest):Promise<void> => {
+    const projectId = requireHighlightOnline('floorPlans',request.baseline.floorId);
+    const writerUid=getCurrentRealFirebaseUser()?.uid;
+    if(!writerUid)throw new Error('Chưa xác minh tài khoản lưu.');
+    const existing = present.floorPlans.find(f=>f.id===request.baseline.floorId);
+    if (!canSaveFloorCalibration(existing,request)) throw new Error('Nguồn ảnh hoặc tỷ lệ đã thay đổi. Chưa lưu.');
+    let saved:FloorPlan | undefined;
+    await queueCloudSave(async()=>{
+      if (getCurrentRealFirebaseUser()?.uid !== writerUid || activeProjectIdRef.current !== projectId || Number(localDirtyRevisionRef.current.floorPlans || 0)>0)
+        throw new Error('Dự án hoặc dữ liệu đã thay đổi. Chưa lưu.');
+      saved = await commitFloorCalibrationCas(projectId,request);
+    });
+    if (!saved || getCurrentRealFirebaseUser()?.uid !== writerUid || activeProjectIdRef.current !== projectId) throw new Error('Không thể xác nhận trong dự án hiện tại; kiểm tra lại tỷ lệ đã lưu.');
+    const acknowledged = saved as FloorPlan;
+    // Preserve local display-only image data; the transaction returns the canonical cloud metadata.
+    const update = (rows:FloorPlan[])=>rows.map(f=>f.id===acknowledged.id && Number(f.revision||0)<=Number(acknowledged.revision||0)
+      ? {...f,highlightMetricCalibration:acknowledged.highlightMetricCalibration,revision:acknowledged.revision,updatedAt:acknowledged.updatedAt,updatedByUid:acknowledged.updatedByUid}:f);
+    setPresent(prev=>({...prev,floorPlans:update(prev.floorPlans)}));
+    if(lastSyncedPresentRef.current) lastSyncedPresentRef.current={...lastSyncedPresentRef.current,floorPlans:update(lastSyncedPresentRef.current.floorPlans)};
   };
 
   const handleSaveRoomProgress = (
@@ -8442,6 +8484,7 @@ function AuthenticatedApp() {
             >
             <FloorPlanDefectTab
               projectId={activeProjectId}
+              highlightDraftUid={isProjectRoleResolved&&projectRoleAllowed&&currentUserRole==='ADMIN'?(getCurrentRealFirebaseUser()?.uid||(!isOnline?getRememberedVerifiedAuthIdentity()?.uid:undefined)):undefined}
               floorPlans={floorPlans}
               structureConfig={structureConfig}
               onStructureConfigChange={handleStructureConfigChange}
@@ -8484,6 +8527,7 @@ function AuthenticatedApp() {
               onSaveRoomProgress={handleSaveRoomProgress}
               onSaveDirectHighlightShapes={handleSaveDirectHighlightShapes}
               onSaveHighlightCount={handleSaveHighlightCount}
+              onSaveFloorCalibration={handleSaveFloorCalibration}
               onBatchSaveRooms={handleBatchSaveRooms}
               onCommitPositionLocks={handleCommitPositionLocks}
               onApplyRoomExcelImport={handleApplyRoomExcelImport}

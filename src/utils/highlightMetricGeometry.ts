@@ -101,3 +101,23 @@ export function measureWallAreaM2(lengthMetres: number, heightMetres: number, fa
     openingsM2 > lengthMetres * heightMetres * faces) return { valid: false, reason: 'Chiều dài/cao, số mặt hoặc diện tích ô trống không hợp lệ.' };
   return { valid: true, value: lengthMetres * heightMetres * faces - openingsM2, unit: 'm²' };
 }
+
+/** Captured on opening the tool, never rebased silently during a drawing. */
+export type FloorCalibrationBaseline = {
+  floorId: string; sourceKey: string; imageRevision?: number;
+  revision?: number; updatedAt?: number; calibrationUpdatedAt?: number;
+};
+export type FloorCalibrationSaveRequest = { baseline: FloorCalibrationBaseline; calibration: FloorMetricCalibration };
+export const getFloorCalibrationBaseline = (floor: FloorPlan): FloorCalibrationBaseline => ({
+  floorId:floor.id, sourceKey:floorMetricSourceKey(floor), imageRevision:floor.imageRevision,
+  revision:floor.revision, updatedAt:floor.updatedAt, calibrationUpdatedAt:floor.highlightMetricCalibration?.updatedAt,
+});
+export function canSaveFloorCalibration(floor: FloorPlan | undefined, request: FloorCalibrationSaveRequest): boolean {
+  if (!floor || floor.deletedAt || (floor as FloorPlan & {deleted?:boolean}).deleted) return false;
+  const a = getFloorCalibrationBaseline(floor), b = request.baseline, c = request.calibration;
+  if (a.floorId !== b.floorId || a.sourceKey !== b.sourceKey || a.imageRevision !== b.imageRevision ||
+      a.revision !== b.revision || a.updatedAt !== b.updatedAt || a.calibrationUpdatedAt !== b.calibrationUpdatedAt ||
+      !Number.isFinite(c.updatedAt) || c.updatedAt <= 0) return false;
+  return getValidFloorMetricCalibration({...floor,highlightMetricCalibration:c},
+    {width:c.sourceWidthPx,height:c.sourceHeightPx}).valid;
+}

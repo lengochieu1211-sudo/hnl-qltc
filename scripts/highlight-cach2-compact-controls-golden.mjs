@@ -29,7 +29,8 @@ assert.equal((floor.match(/aria-pressed=\{isShapeDrawing \? cach2DrawTool ===/g)
 assert.doesNotMatch(floor, /setMetricCalibrationLaunch\(\{floorId:[^}]+\}\);?\s*return;/,
   'Highlight mode toggling cannot trigger measurement calibration');
 
-const reclickHandler = floor.slice(floor.indexOf('const selectCach2ToolbarTool ='), floor.indexOf('const [pendingCountRoomReturn'));
+const reclickHandler = floor.slice(floor.indexOf('const selectCach2ToolbarTool ='), floor.indexOf('const [selectedRoomForEdit'));
+assert.match(reclickHandler,/cach2ToolSwitchGuardRef\.current\?\.\(\) !== false/);
 assert.doesNotMatch(reclickHandler, /setMetricCalibrationLaunch/,
   'A re-click must never transfer focus into Đo tỷ lệ');
 assert.equal((floor.match(/title="Chọn 2 điểm chuẩn để đo tỷ lệ"/g) || []).length, 2,
@@ -65,3 +66,5 @@ assert.match(draw, /await onSaveShapes\(request\)/);
 assert.match(draw, /window\.confirm\(`XÁC NHẬN/);
 assert.match(read('src/App.tsx'), /await commitDirectHighlightCas\(projectId, request\)/);
 console.log('HIGHLIGHT_CACH2_COMPACT_CONTROLS_GOLDEN PASS: both toolbars, no duplicate, compact panel, inline room map only, smaller visual marks, CAS guard');
+
+await import('./highlight-hl01-hl06-golden.mjs');

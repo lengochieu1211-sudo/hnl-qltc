@@ -11,6 +11,14 @@ export type CountRegionMode = 'main' | 'own' | 'none';
 export const MAX_COUNT_MARKERS = 250;
 export const MAX_COUNT_SUM = 100000;
 
+/** An empty or non-integer input is never an instruction to overwrite KL with 0. */
+export function parseManualHighlightCount(input: string): number | null {
+  const text = input.trim();
+  if (!/^\d+$/.test(text)) return null;
+  const value = Number(text);
+  return Number.isSafeInteger(value) && value >= 0 && value <= MAX_COUNT_SUM ? value : null;
+}
+
 export const isCountStage = (stage: RoomSubItem, room: RoomProgressItem): boolean =>
   normalizeUnit(stage.volumeUnit || room.categoryVolumeUnits?.[stage.category || room.workCategory || ''] || room.volumeUnit) === 'Cái';
 

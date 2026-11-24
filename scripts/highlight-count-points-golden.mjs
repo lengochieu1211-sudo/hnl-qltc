@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {isCountStage,totalCountPoints,validCountPoints,canSaveHighlightCount,applyHighlightCount,MAX_COUNT_MARKERS} from '../src/utils/highlightCountPoints.ts';
+import {isCountStage,totalCountPoints,validCountPoints,canSaveHighlightCount,applyHighlightCount,parseManualHighlightCount,MAX_COUNT_MARKERS} from '../src/utils/highlightCountPoints.ts';
 const stage={id:'stage-cai',name:'Cửa thăm trần',category:'Trần',status:'Đang làm',inspectionStatus:'Chưa nghiệm thu',volumeUnit:'cai',workVolume:5,highlightCountMode:'manual',highlightVolumeMode:'manual'};
 const room={id:'roomA',floorId:'floorA',roomName:'A101',x:10,y:20,width:50,height:40,frameStatus:'Đang làm',boardStatus:'Chưa làm',inspectionStatus:'Chưa nghiệm thu',updatedAt:10,revision:2,workCategory:'Trần',volumeUnit:'m²',subItems:[stage,{id:'stage-other',name:'Khung',category:'Trần',status:'Đang làm',volumeUnit:'m²',workVolume:45}]};
 const m=[{id:'one',x:20,y:20,count:1},{id:'two',x:60,y:60,count:1},{id:'three',x:80,y:30,count:2}];
+for(const text of ['', ' ', '-1','1.5','1e3','0x10','Infinity','100001','NaN']) assert.equal(parseManualHighlightCount(text),null,`invalid manual count: ${text}`);
+for(const [text,expected] of [['0',0],['5',5],['0005',5],['100000',100000]]) assert.equal(parseManualHighlightCount(text),expected);
 assert.equal(isCountStage(stage,room),true);
 assert.equal(isCountStage(room.subItems[1],room),false);
 assert.equal(totalCountPoints(m),4);
@@ -46,5 +48,12 @@ for(const field of ['highlightCountPoints?:','highlightCountMode?:','highlightCo
 for(const feature of ['data-hnl-count-point-canvas','data-hnl-count-editor','Tự đếm theo điểm','Nhập tay','onPointerDown','onPointerMove','onSave(request)','setMarkerCount','onReturnToRoom'])assert.ok(source.editor.includes(feature),feature);
 for(const feature of ['data-hnl-sub-count-unit','Lưu biểu mẫu & Đánh dấu trên mặt bằng','countStageAfterSaveRef','onStartCountOnMap'])assert.ok(source.form.includes(feature),feature);
 for(const feature of ['data-hnl-count-saved-marker','mapLayers.countPoints','onSaveHighlightCount','onStartCountOnMap','pointerEvents="none"'])assert.ok(source.floor.includes(feature),feature);
-for(const feature of ['canSaveHighlightCount(existing, request)','applyHighlightCount(existing, request)','onSaveHighlightCount={handleSaveHighlightCount}'])assert.ok(source.app.includes(feature),feature);
+for(const feature of ['canSaveHighlightCount(existing, request)','await commitHighlightCountCas(projectId,request)','onSaveHighlightCount={handleSaveHighlightCount}'])assert.ok(source.app.includes(feature),feature);
+assert.match(source.editor,/const volume=parseManualHighlightCount\(manual\)/);
+assert.match(source.editor,/mode==='manual'&&volume===null/);
+assert.match(source.editor,/const acknowledged=await onSave\(request\)/);
+assert.match(source.editor,/catch\(error\)[\s\S]*Bản nháp vẫn còn/);
+const backend=readFileSync('src/lib/firebaseBase.ts','utf8');
+assert.match(backend,/canSaveHighlightCount\(current,request\)/);
+assert.match(backend,/applyHighlightCount\(current,request\)/);
 console.log('HIGHLIGHT_COUNT_POINTS_GOLDEN PASS: stage unit isolation; 4-point sums; optional legacy data; manual/auto; polygon safety; RBAC/lock/finalized; no mutations; UI wiring');

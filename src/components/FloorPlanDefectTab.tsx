@@ -72,6 +72,7 @@ import {
 import { UndoRedoControls } from './UndoRedoControls';
 import { FloorHighlightDirectDraw } from './FloorHighlightDirectDraw';
 import { FloorMetricCalibration } from './FloorMetricCalibration';
+import type { FloorCalibrationSaveRequest } from '../utils/highlightMetricGeometry';
 import { FloorHighlightCountPoints } from './FloorHighlightCountPoints';
 import type { HighlightCountSaveRequest } from '../utils/highlightCountPoints';
 import type { DirectHighlightCommitRequest } from '../utils/floorHighlightDirectShapes';
@@ -341,6 +342,7 @@ const TeamSelectorInput: React.FC<TeamSelectorInputProps> = ({
 
 interface FloorPlanDefectTabProps {
   projectId?: string;
+  highlightDraftUid?: string;
   floorPlans: FloorPlan[];
   structureConfig: ProjectStructureConfig;
   onStructureConfigChange?: (next: ProjectStructureConfig) => void;
@@ -381,7 +383,8 @@ interface FloorPlanDefectTabProps {
   onDeleteMultipleDefects?: (ids: string[]) => void;
   onSaveRoomProgress: (room: Omit<RoomProgressItem, 'id' | 'updatedAt'> & { id?: string }) => void;
   onSaveDirectHighlightShapes?: (request: DirectHighlightCommitRequest) => Promise<void>;
-  onSaveHighlightCount?: (request: HighlightCountSaveRequest) => void;
+  onSaveHighlightCount?: (request: HighlightCountSaveRequest) => Promise<RoomProgressItem>;
+  onSaveFloorCalibration?: (request:FloorCalibrationSaveRequest)=>Promise<void>;
   onBatchSaveRooms?: (rooms: RoomProgressItem[]) => void;
   onCommitPositionLocks?: (kind: 'room' | 'defect', entries: Array<{ id: string; expectedLocked: boolean }>, locked: boolean) => Promise<void>;
   onApplyRoomExcelImport?: (rooms: RoomProgressItem[], deleteIds: string[]) => void;
@@ -661,6 +664,7 @@ const DefectPhotoStrip: React.FC<DefectPhotoStripProps> = ({
 
 export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   projectId,
+  highlightDraftUid,
   floorPlans,
   structureConfig,
   onStructureConfigChange,
@@ -696,7 +700,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   onDeleteMultipleDefects,
   onSaveRoomProgress,
   onSaveDirectHighlightShapes,
-  onSaveHighlightCount,
+  onSaveHighlightCount, onSaveFloorCalibration,
   onBatchSaveRooms,
   onCommitPositionLocks,
   onApplyRoomExcelImport,
@@ -1342,11 +1346,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   const [cach2CloseRequestToken, setCach2CloseRequestToken] = useState(0);
   // Esc must request a safe exit; never clear the selected room before draft confirmation.
   const [cach2ExitToPlanRequestToken, setCach2ExitToPlanRequestToken] = useState(0);
+  const cach2ToolSwitchGuardRef = useRef<(() => boolean) | null>(null);
   const selectCach2ToolbarTool = (tool: '2point' | 'polygon' | 'freehand') => {
     if (cach2DrawTool === tool) setCach2CloseRequestToken((token) => token + 1);
-    else setCach2DrawTool(tool);
+    else if (cach2ToolSwitchGuardRef.current?.() !== false) setCach2DrawTool(tool);
   };
-  const [pendingCountRoomReturn, setPendingCountRoomReturn] = useState<{roomId:string;updatedAt:number}|null>(null);
   const [selectedRoomForEdit, setSelectedRoomForEdit] = useState<RoomProgressItem | null>(null);
   const [healthCenterOrphanRepairRoomId, setHealthCenterOrphanRepairRoomId] = useState<string | null>(null);
   const [newRoomClickPos, setNewRoomClickPos] = useState<{ x: number; y: number } | undefined>(undefined);
@@ -4025,16 +4029,6 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
   }, [displayedFloorRooms, roomSortBy, roomSortOrder]);
 
   const selectedRoomObject = displayedFloorRooms.find((r) => r.id === selectedRoomForDragId || selectedRoomIds.includes(r.id));
-  // Avoid reopening the Room form with a stale subItems snapshot immediately
-  // after submitting count points. Await the new room snapshot before navigation.
-  useEffect(() => {
-    if (!pendingCountRoomReturn) return;
-    const updated = roomProgressList.find(r => r.id === pendingCountRoomReturn.roomId);
-    if (!updated || updated.updatedAt === pendingCountRoomReturn.updatedAt) return;
-    setSelectedRoomForEdit(updated);
-    setIsRoomModalOpen(true);
-    setPendingCountRoomReturn(null);
-  }, [pendingCountRoomReturn, roomProgressList]);
 
   const selectedDefectForFocus = floorDefects.find((d) => selectedDefectIds.includes(d.id)) || null;
   const selectedRoomIdsForAction = selectedRoomIds.length > 0
@@ -8309,10 +8303,11 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             )}
 
             {/* Cách 2: floor-source-bound metric calibration, optional; old quantities unchanged. */}
-            {activeFloor && onUpdateFloorPlan && !isCountDrawing && !isShapeDrawing &&
+            {activeFloor && onSaveFloorCalibration && !isCountDrawing && !isShapeDrawing &&
               !isDefectPinPlacementMode && !isRoomCreationDrawing && drawTool === 'none' && (viewMode === 'all' || viewMode === 'highlight') && (
               <FloorMetricCalibration
-                key={`${currentProjectId}:${activeFloor.id}`} floor={activeFloor}
+                key={JSON.stringify([highlightDraftUid,currentProjectId,activeFloor.id])} floor={activeFloor}
+                draftScope={highlightDraftUid&&projectId?{uid:highlightDraftUid,projectId}:undefined}
                 imageContainer={imageContainerRef.current} rotation={rotation} zoomScale={zoomScale} launch={metricCalibrationLaunch} rooms={floorRooms}
                 isFullscreen={isFullscreen}
                 canSave={canManageStructure}
@@ -8321,7 +8316,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   setIsMetricCalibrating(active);
                   if (!active) setMetricCalibrationLaunch(null);
                 }}
-                onSave={(floorId, calibration)=>onUpdateFloorPlan(floorId,{highlightMetricCalibration:calibration})}
+                onSave={onSaveFloorCalibration}
                 objectSnapEnabled={objectSnapEnabled} objectSnapMidpoints={objectSnapMidpoints}
                 cadGridSnap={cadGridSnap} cadOrtho={cadOrtho} cadPolar={cadPolar}
               />)}
@@ -8346,6 +8341,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 isFullscreen={isFullscreen}
                 launch={cach2DrawLaunch}
                 selectedTool={cach2DrawTool}
+                toolSwitchGuardRef={cach2ToolSwitchGuardRef}
                 closeRequestToken={cach2CloseRequestToken}
                 exitToPlanRequestToken={cach2ExitToPlanRequestToken}
                 onExitToPlan={() => {
@@ -8368,22 +8364,20 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             )}
 
             {/* Optional ĐVT Cái stage markers; independent of area highlights and Defect pins. */}
-            {canManageStructure && onSaveHighlightCount && selectedRoomObject && !isRoomModalOpen && !isRoomCreationDrawing && drawTool === 'none' &&
+            {(canManageStructure || isCountDrawing) && onSaveHighlightCount && selectedRoomObject && !isRoomModalOpen && !isRoomCreationDrawing && drawTool === 'none' &&
               !isDefectPinPlacementMode && !relocatingDefectId && !isMetricCalibrating && (viewMode === 'all' || viewMode === 'highlight') && (
               <FloorHighlightCountPoints
+                key={JSON.stringify([highlightDraftUid,currentProjectId,selectedRoomObject.id])}
+                draftScope={highlightDraftUid&&projectId?{uid:highlightDraftUid,projectId}:undefined}
                 room={selectedRoomObject}
                 imageContainer={imageContainerRef.current}
                 rotation={rotation}
-                locked={lockedRoomIds.has(selectedRoomObject.id)}
+                locked={!canManageStructure || lockedRoomIds.has(selectedRoomObject.id)}
                 launchStageId={countLaunchStageId}
                 onActiveChange={(active)=>{setIsCountDrawing(active);if(!active)setCountLaunchStageId(null);}}
-                onReturnToRoom={(afterSave) => {
-                  if (afterSave) {
-                    setPendingCountRoomReturn({roomId:selectedRoomObject.id,updatedAt:selectedRoomObject.updatedAt});
-                  } else {
-                    setSelectedRoomForEdit(roomProgressList.find(r=>r.id===selectedRoomObject.id)||selectedRoomObject);
-                    setIsRoomModalOpen(true);
-                  }
+                onReturnToRoom={(acknowledged) => {
+                  setSelectedRoomForEdit(acknowledged || roomProgressList.find(r=>r.id===selectedRoomObject.id)||selectedRoomObject);
+                  setIsRoomModalOpen(true);
                 }}
                 otherDrawingActive={isShapeDrawing}
                 objectSnapEnabled={objectSnapEnabled}
@@ -8391,7 +8385,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                 cadGridSnap={cadGridSnap}
                 cadOrtho={cadOrtho}
                 cadPolar={cadPolar}
-                onSave={(request)=>{onSaveHighlightCount(request);setMapLayers(prev=>({...prev,countPoints:true}));}}
+                onSave={async(request)=>{const acknowledged=await onSaveHighlightCount(request);setMapLayers(prev=>({...prev,countPoints:true}));return acknowledged;}}
               />
             )}
 

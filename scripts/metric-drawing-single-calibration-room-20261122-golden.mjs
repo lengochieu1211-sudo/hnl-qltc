@@ -27,6 +27,6 @@ assert.match(floor, /data-hnl-cach2-calibrate-toolbar="true"/);
 assert.match(floor, /data-hnl-metric-calibrate-fullscreen="true"/);
 assert.match(floor, /setMetricCalibrationLaunch\(\{floorId:activeFloor.id,token:Date.now\(\)\}\)/);
 assert.match(floor, /<FloorMetricCalibration/);
-assert.match(calibration, /onSave\(floor.id,draft\)/);
+assert.match(calibration, /await onSave\(request\)/);
 assert.doesNotMatch(draw+room, /onSave\(floor.id,draft\)/);
 console.log('PASS: map toolbar calibration only; main/subitem target picker preserves existing stage IDs');

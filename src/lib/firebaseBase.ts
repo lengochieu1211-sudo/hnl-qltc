@@ -49,7 +49,9 @@ import type { ProjectStructureConfig } from '../utils/structureGroupUtils';
 import type { RoomProgressItem, FloorPlan } from '../types';
 import type { DirectHighlightCommitRequest } from '../utils/floorHighlightDirectShapes';
 import { canApplyDirectHighlightShapes, canApplyDirectHighlightQuantity, withDirectHighlightShapes, withDirectHighlightQuantity } from '../utils/floorHighlightDirectShapes';
-import { floorMetricSourceKey } from '../utils/highlightMetricGeometry';
+import { floorMetricSourceKey, canSaveFloorCalibration, type FloorCalibrationSaveRequest } from '../utils/highlightMetricGeometry';
+import { canSaveHighlightCount, applyHighlightCount, type HighlightCountSaveRequest } from '../utils/highlightCountPoints';
+import { measureDirectCategoryArea } from '../utils/highlightMetricCategorySummary';
 const env = (import.meta as any).env || {};
 const p21DemoWriterGates = {
   roomSidecarDemo: String(env.VITE_P21_ROOM_SIDECAR_DEMO || '') === 'P21_LOCAL_EMULATOR_ONLY',
@@ -2250,6 +2252,16 @@ export async function commitDirectHighlightCas(projectId: string, request: Direc
         throw new Error('Ảnh hoặc hiệu chuẩn mặt bằng đã thay đổi trên thiết bị khác. Cần đo lại; chưa cập nhật khối lượng.');
       }
     }
+    if (quantityRequest?.measurementKind === 'area' && floorSnap?.exists()) {
+      const floor = floorSnap.data() as FloorPlan;
+      const calibration = floor.highlightMetricCalibration!;
+      const measured = measureDirectCategoryArea({floor,room:current,category:quantityRequest.category,
+        target:quantityRequest.target,shapes:quantityRequest.shapes,
+        image:{width:calibration.sourceWidthPx,height:calibration.sourceHeightPx}});
+      if (!measured.valid || Math.abs(Math.round(measured.value * 1000) / 1000 - quantityRequest.measuredQuantity.value) > 0.000001) {
+        throw new Error('Diện tích không khớp vùng nguồn trên Firestore. Chưa lưu khối lượng.');
+      }
+    }
     const next = quantityRequest ? withDirectHighlightQuantity(current, quantityRequest) : current;
     const changed = request.shapes ? withDirectHighlightShapes(next, request.category, request.target, request.shapes) : next;
     const updatedAt = Math.max(Date.now(), Number(current.updatedAt || 0) + 1);
@@ -2274,6 +2286,51 @@ export async function commitDirectHighlightCas(projectId: string, request: Direc
     transaction.update(roomRef, sanitizePayloadForCloud(fields));
     return { ...changed, ...fields } as RoomProgressItem;
   }, { maxAttempts: 3 });
+}
+
+/** Count/calibration commits use the same confirmed online boundary as Cách 2.
+ * No offline whole-document overwrite; the editor retains the unsaved draft. */
+async function verifiedHighlightWriter(projectId:string) {
+  const user = getCurrentRealFirebaseUser();
+  if (!projectId || !user || (typeof navigator !== 'undefined' && !navigator.onLine))
+    throw new Error('Cần kết nối Firestore để lưu an toàn. Bản nháp chưa bị xóa.');
+  const role = await fetchProjectUserRoleFromCloud(projectId,user);
+  if (getCurrentRealFirebaseUser()?.uid !== user.uid || role.verification !== 'verified' || !role.allowed || role.role !== 'ADMIN')
+    throw new Error('Chỉ ADMIN đã xác minh được lưu.');
+  return user;
+}
+const highlightCommitStamp = (current:{updatedAt?:number;revision?:number},user:User) => ({
+  updatedAt:Math.max(Date.now(),Number(current.updatedAt || 0)+1),revision:Math.max(0,Number(current.revision || 0))+1,
+  updatedByUid:user.uid,updatedByEmail:normalizeEmail(user.email),updatedByDeviceId:getDeviceId(),updatedByDeviceName:getDeviceName(),
+});
+export async function commitHighlightCountCas(projectId:string, request:HighlightCountSaveRequest):Promise<RoomProgressItem> {
+  const user = await verifiedHighlightWriter(projectId);
+  const ref = doc(db,'projects',projectId,'rooms',request.roomId);
+  return runTransaction(db,async transaction => {
+    const snap = await transaction.get(ref);
+    if (getCurrentRealFirebaseUser()?.uid !== user.uid) throw new Error('Tài khoản đã đổi. Chưa lưu.');
+    const current = snap.exists() ? snap.data() as RoomProgressItem : undefined;
+    if (!current || !canSaveHighlightCount(current,request)) throw new Error('Phòng/hạng mục đã đổi, bị khóa hoặc không hợp lệ. Chưa lưu.');
+    const next = applyHighlightCount(current,request);
+    const fields = {...highlightCommitStamp(current,user),subItems:next.subItems};
+    transaction.update(ref,sanitizePayloadForCloud(fields));
+    return {...next,...fields};
+  },{maxAttempts:3});
+}
+export async function commitFloorCalibrationCas(projectId:string,request:FloorCalibrationSaveRequest):Promise<FloorPlan> {
+  const user = await verifiedHighlightWriter(projectId);
+  const ref = doc(db,'projects',projectId,'floor_plans',request.baseline.floorId);
+  return runTransaction(db,async transaction => {
+    const snap = await transaction.get(ref);
+    if (getCurrentRealFirebaseUser()?.uid !== user.uid) throw new Error('Tài khoản đã đổi. Chưa lưu.');
+    const current = snap.exists() ? snap.data() as FloorPlan : undefined;
+    if (!current || !canSaveFloorCalibration(current,request)) throw new Error('Mặt bằng hoặc hiệu chuẩn đã thay đổi. Chưa lưu tỷ lệ.');
+    const stamp = highlightCommitStamp(current,user);
+    const fields = {...stamp,highlightMetricCalibration:{...request.calibration,
+      updatedAt:Math.max(stamp.updatedAt,Number(current.highlightMetricCalibration?.updatedAt||0)+1)}};
+    transaction.update(ref,sanitizePayloadForCloud(fields));
+    return {...current,...fields};
+  },{maxAttempts:3});
 }
 
 /**

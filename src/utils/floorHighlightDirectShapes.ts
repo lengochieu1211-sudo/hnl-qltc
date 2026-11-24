@@ -117,6 +117,7 @@ export interface DirectHighlightSaveRequest {
 /** Explicit user-approved quantity write. No automatic calculation may use this path. */
 export interface DirectHighlightQuantitySaveRequest extends Omit<DirectHighlightSaveRequest, 'shapes'> {
   measuredQuantity: { value: number; unit: 'm' | 'm²' };
+  measurementKind?: 'area' | 'length' | 'wall';
   /** Bind measurement to the already-saved, same-source floor calibration. */
   floorId: string;
   expectedFloorSourceKey: string;
@@ -181,6 +182,8 @@ export function canApplyDirectHighlightQuantity(room: RoomProgressItem | undefin
     .toLowerCase().replace(/\s/g, '').replace('m2', 'm²');
   if (!storedUnit) return false; // Unknown unit must never be treated as a number of m².
   if (storedUnit !== request.measuredQuantity?.unit) return false;
+  if (request.measurementKind && ((request.measurementKind === 'length') !== (request.measuredQuantity.unit === 'm') ||
+    !['area','length','wall'].includes(request.measurementKind))) return false;
   if (!Number.isFinite(request.measuredQuantity.value) || request.measuredQuantity.value <= 0 || request.measuredQuantity.value > 1_000_000_000) return false;
   if (!request.floorId || request.floorId !== room.floorId || !request.expectedFloorSourceKey ||
       !Number.isFinite(request.expectedCalibrationUpdatedAt) || request.expectedCalibrationUpdatedAt <= 0) return false;

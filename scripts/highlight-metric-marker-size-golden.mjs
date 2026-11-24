@@ -10,7 +10,7 @@ const checks = [
   ['small-points identifier', /data-hnl-metric-small-points="true"/],
   ['event input remains full canvas', /onPointerDown=\{clickPoint\}/],
   ['preserve two point calibration', /createFloorMetricCalibration\(floor, dimensions, points\[0\], points\[1\], actualDistance\)/],
-  ['save still only existing callback', /onSave\(floor\.id,draft\)/],
+  ['save still only existing callback', /await onSave\(request\)/],
 ];
 for (const [label,re] of checks) assert.match(component,re,label);
 assert.match(parent,/rotation=\{rotation\} zoomScale=\{zoomScale\} (?:launch=\{metricCalibrationLaunch\} )?rooms=\{floorRooms\}/);

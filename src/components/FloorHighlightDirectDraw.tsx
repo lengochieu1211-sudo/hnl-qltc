@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { FloorPlan, HighlightRegionShape, Point2D, RoomProgressItem, WorkVolume } from '../types';
-import { getValidFloorMetricCalibration, measureHighlightAreaM2, measureHighlightLengthM, measureWallAreaM2 } from '../utils/highlightMetricGeometry';
+import { getValidFloorMetricCalibration, measureHighlightLengthM, measureWallAreaM2 } from '../utils/highlightMetricGeometry';
 import { getDirectStageCategory, getSavedDirectHighlightShapes, getDirectHighlightCategoryNames, getDirectHighlightEffectiveUnit, resolveDirectHighlightLaunchCategory, mapDirectHighlightPointerToFloor, getDirectHighlightDrawPoint } from '../utils/floorHighlightDirectShapes';
 import { mainHighlightColorKey, childHighlightColorKey } from '../utils/highlightCategoryColors';
-import { getCalibratedHighlightRows } from '../utils/highlightMetricCategorySummary.ts';
+import { getCalibratedHighlightRows, measureDirectCategoryArea } from '../utils/highlightMetricCategorySummary.ts';
 import { useFloorPlanToolPopover } from '../hooks/useFloorPlanToolPopover';
 import type { DirectHighlightCommitRequest, DirectHighlightQuantitySaveRequest } from '../utils/floorHighlightDirectShapes';
 import {
@@ -54,6 +54,7 @@ interface Props {
   isFullscreen?: boolean;
   /** Shared selection from the floor-map drawing toolbar; does not change room geometry. */
   selectedTool?: DrawTool;
+  toolSwitchGuardRef?: React.MutableRefObject<(() => boolean) | null>;
   /** Parent toolbar selected-tool re-click; asks before discarding unsaved Highlight drafts. */
   closeRequestToken?: number;
   /** One-shot escape/exit request from the floor plan, preserving draft confirmation. */
@@ -72,7 +73,7 @@ interface Props {
 }
 
 export const FloorHighlightDirectDraw: React.FC<Props> = ({
-  room, workVolumes = [], floor, imageContainer, rotation, onSaveShapes, highlightColors, onShowLayer, isLocked, disabled=false, isFullscreen=false, selectedTool, closeRequestToken=0, exitToPlanRequestToken=0, onExitToPlan, onOpenChange,
+  room, workVolumes = [], floor, imageContainer, rotation, onSaveShapes, highlightColors, onShowLayer, isLocked, disabled=false, isFullscreen=false, selectedTool, toolSwitchGuardRef, closeRequestToken=0, exitToPlanRequestToken=0, onExitToPlan, onOpenChange,
   objectSnapEnabled, objectSnapMidpoints, cadGridSnap, cadOrtho, cadPolar, launch,
 }) => {
   const [open, setOpen] = useState(false);
@@ -145,16 +146,10 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
     return () => image.removeEventListener('load', readDimensions);
   }, [imageContainer, floor?.imageUrl]);
   // Intersection/union area may require an O(edges²) sweep: never recompute on hover.
-  const measuredRegion = useMemo(() => {
-    if (currentTarget === 'main') return candidateShapes;
-    const sub = currentTarget === targetStage?.id ? candidateShapes
-      : getSavedDirectHighlightShapes(room, currentCategory, currentTarget);
-    return sub.length ? sub : getSavedDirectHighlightShapes(room, currentCategory, 'main');
-  }, [room, currentCategory, currentTarget, targetStage?.id, candidateShapes]);
-  const metricPreview = useMemo(() => floor ? measureHighlightAreaM2({
-    floor, image: imageDimensions, room, shapes: measuredRegion,
+  const metricPreview = useMemo(() => floor ? measureDirectCategoryArea({
+    floor, image: imageDimensions, room, category:currentCategory, target:currentTarget, shapes:candidateShapes,
   }) : { valid: false as const, reason: 'Chưa chọn mặt bằng.' },
-  [floor, imageDimensions.width, imageDimensions.height, room, measuredRegion]);
+  [floor, imageDimensions.width, imageDimensions.height, room, currentCategory, currentTarget, candidateShapes]);
   // Calculate all existing main/stage areas from the approved floor calibration,
   // without cloud writes and without recategorizing any manually entered quantities.
   const calibratedRows = useMemo(() => getCalibratedHighlightRows(room, floor, imageDimensions, workVolumes),
@@ -209,6 +204,14 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
     if (exitToPlanRequestToken) exitDrawing(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exitToPlanRequestToken]);
+  const confirmDiscardGesture = (): boolean => !saving && (
+    !(corners.length || freehand.length || freehandRef.current.length || measurePath.length) ||
+    window.confirm('Đổi công cụ sẽ bỏ nét hoặc tuyến đo chưa hoàn thành. Tiếp tục?'));
+  React.useLayoutEffect(() => {
+    if (!toolSwitchGuardRef) return;
+    toolSwitchGuardRef.current = confirmDiscardGesture;
+    return () => { toolSwitchGuardRef.current = null; };
+  });
   const confirmSwitchWithDraft = (): boolean =>
     !(draft.length || corners.length || freehand.length || measurePath.length) ||
     window.confirm('Đổi hạng mục sẽ bỏ vùng đang vẽ chưa lưu. Tiếp tục?');
@@ -233,7 +236,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
     setCategory(chosenCategory);
     setTarget(chosenTarget);
     setLineMode(false);
-    setDraft([]); setCorners([]); setMeasurePath([]); setNotice('');
+    clearWork(); setReplaceExisting(false);
     baselineRef.current = { revision: room.revision, updatedAt: room.updatedAt };
     setOpen(true); setShowOptions(false); setQuantityMode('measure'); onOpenChange?.(true);
     // Opening is keyed exclusively by the deliberate navigation token.
@@ -248,6 +251,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
       setNotice('Không thể vẽ: vùng phòng không hợp lệ, đang khóa hoặc đã nghiệm thu.'); return;
     }
     baselineRef.current = { revision: room.revision, updatedAt: room.updatedAt };
+    setReplaceExisting(false); setLineMode(false);
     setOpen(true); setShowOptions(false); setQuantityMode('measure'); onOpenChange?.(true); clearWork();
   };
   const addShape = (shape: HighlightRegionShape) => {
@@ -382,7 +386,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
       expectedRevision: baselineRef.current.revision, category: currentCategory, target: currentTarget,
       floorId: floor.id, expectedFloorSourceKey: calibration.value.sourceKey,
       expectedCalibrationUpdatedAt: calibration.value.updatedAt,
-      measuredQuantity: {value, unit},
+      measuredQuantity: {value, unit}, measurementKind:kind,
       ...(kind === 'area' && draft.length ? {shapes: candidateShapes} : {}),
     };
     setSaving(true); setNotice('Đang đối chiếu phiên bản phòng và hiệu chuẩn trên Firestore...');
@@ -466,7 +470,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
                           {row.autoPolicy ? ' · Công thức vùng tổng' : ' · KL nhập tay giữ nguyên'}
                         </span>
                         <span className="block text-[9px] text-slate-400">
-                          Đang lưu: {typeof row.savedQuantity === 'number' && Number.isFinite(row.savedQuantity) ? `${formatted(row.savedQuantity)} ${row.storedUnit}` : 'Chưa nhập'}
+                          Đang lưu: {typeof row.savedQuantity === 'number' && Number.isFinite(row.savedQuantity) ? `${formatted(row.savedQuantity)} ${row.storedUnit || '· Chưa xác định ĐVT'}` : 'Chưa nhập'}
                         </span>
                       </span>
                       <span className="shrink-0 text-right font-bold text-sky-200">
@@ -496,7 +500,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
           </label>
           </div>}
           <button type="button" data-hnl-cach2-line-mode="true" aria-pressed={lineMode}
-            disabled={draft.length > 0} onClick={() => { setLineMode(v=>!v); setMeasurePath([]); setCorners([]); }}
+            disabled={draft.length > 0} onClick={() => { if (!confirmDiscardGesture()) return; setLineMode(v=>!v); setMeasurePath([]); setCorners([]); setFreehand([]); setHover(null); setSnapMarker(null); freehandRef.current=[]; activePointerRef.current=null; }}
             className={`w-full rounded-md border p-1.5 text-left font-bold ${lineMode?'border-teal-300 bg-teal-800':'border-slate-600 bg-slate-800'}`}>
             {lineMode ? '◉ Đang đo chiều dài / vách' : '📏 Đo chiều dài / vách'}
           </button>
