@@ -1,0 +1,89 @@
+/** QA-only actual App UI with isolated Auth + Firestore; no mocked save callbacks. */
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {spawn} from 'node:child_process';
+import {chromium} from 'playwright';
+import {initializeApp,deleteApp} from 'firebase/app';
+import {getAuth,connectAuthEmulator,createUserWithEmailAndPassword} from 'firebase/auth';
+import {getFirestore,connectFirestoreEmulator,doc,setDoc,getDocFromServer,getDocsFromServer,collection,terminate} from 'firebase/firestore';
+const project='demo-hnl-qltc-pr492';
+assert.equal(process.env.QA_PR492_RUNTIME_EMULATOR_ONLY,'true');
+assert.equal(process.env.GCLOUD_PROJECT,project);
+assert.equal(process.env.FIREBASE_AUTH_EMULATOR_HOST,'127.0.0.1:9099');
+assert.equal(process.env.FIRESTORE_EMULATOR_HOST,'127.0.0.1:8080');
+for(const k of ['GOOGLE_APPLICATION_CREDENTIALS','FIREBASE_TOKEN','FIREBASE_SERVICE_ACCOUNT','CLOUDFLARE_API_TOKEN'])assert(!process.env[k]);
+const origin='http://127.0.0.1:4178',pid='qa-pr492-stage4',fid='FP-QA',rid='ROOM-AREA',lid='ROOM-LINE';
+const out='runtime-evidence/pr492-stage4-app';fs.mkdirSync(out,{recursive:true});
+const report={head:process.env.GITHUB_SHA,project,scope:'Full App UI + actual App persistence on local Emulator; no live OAuth/native device',status:'RUNNING',checks:[],blockedExternal:[],backendAttempts:[],errors:[]};
+const persist=()=>fs.writeFileSync(out+'/report.json',JSON.stringify(report,null,2));
+const step=async(name,fn)=>{report.currentStep=name;persist();console.log('RUN',name);try{await fn();report.checks.push({name,status:'PASS'});console.log('PASS',name)}catch(e){report.checks.push({name,status:'FAIL',error:String(e?.stack||e)});throw e}finally{persist()}};
+const wait=async(fn,label,timeout=30000)=>{const end=Date.now()+timeout;let last;while(Date.now()<end){try{last=await fn();if(last)return last}catch(e){last=e.message}await new Promise(r=>setTimeout(r,400))}throw Error(label+' timed out; last='+JSON.stringify(last))};
+const svg='<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="500" viewBox="0 0 1000 500"><rect width="1000" height="500" fill="#e6e9ee"/><path d="M100 100H900V400H100Z M200 100V400 M300 100V400" fill="none" stroke="#333" stroke-width="3"/></svg>';
+const img=origin+'/qa-stage4-floor.svg',stamp=Date.now();
+const life={revision:1,createdAt:stamp,updatedAt:stamp,deleted:false,deletedAt:null};
+let server,browser,logs='';const clients=[];const pages=[];
+const account=async(role)=>{const app=initializeApp({projectId:project,apiKey:'demo-key',authDomain:project+'.firebaseapp.com'},'seed-'+role),auth=getAuth(app),db=getFirestore(app);clients.push({app,db});connectAuthEmulator(auth,'http://127.0.0.1:9099',{disableWarnings:true});connectFirestoreEmulator(db,'127.0.0.1',8080);const email=role.toLowerCase()+'@hnl.test';const {user}=await createUserWithEmailAndPassword(auth,email,'HNL-Emulator-123!');return {db,uid:user.uid,email}};
+const ref=(a,c,id)=>doc(a.db,'projects',pid,c,id);
+const read=async(a,c,id)=>(await getDocFromServer(ref(a,c,id))).data();
+const expectVolume=async(a,id,cat,value)=>wait(async()=>{const d=await read(a,'rooms',id);return d?.categoryVolumes?.[cat]===value&&d.id===id?d:false},'server volume '+id+'='+value);
+const blocked=/com-example-qlct-61329|hnlqltc\.web\.app|hnl-qltc-dev\.web\.app|hnl-qltc-r2-gateway|firebaseio\.com|firestore\.googleapis\.com|identitytoolkit\.googleapis\.com|firebasestorage\.googleapis\.com/i;
+try{
+ let admin,editor,viewer;
+ await step('Seed disposable project with three real emulator identities and two room records',async()=>{
+  admin=await account('ADMIN');editor=await account('EDITOR');viewer=await account('VIEWER');
+  await setDoc(doc(admin.db,'projects',pid),{id:pid,name:'PR492 Stage4 QA',ownerUid:admin.uid,ownerEmail:admin.email,createdAt:stamp,updatedAt:stamp});
+  for(const [a,role] of [[editor,'EDITOR'],[viewer,'VIEWER']])await setDoc(ref(admin,'members',a.email),{email:a.email,role,active:true,assignedAt:stamp});
+  await setDoc(ref(admin,'floor_plans',fid),{id:fid,floorName:'Tầng QA',imageUrl:img,imageAssetId:'qa-asset',imageRevision:1,imageCloudRevision:1,uploadedAt:'2026-11-24',...life});
+  for(const [id,title,unit] of [['cat-area','Trần QA','m²'],['cat-line','Tuyến QA','m']])await setDoc(ref(admin,'work_volumes',id),{id,title,workCategoryId:id,unit,quantity:0,...life});
+  const room={id:rid,floorId:fid,floorName:'Tầng QA',roomName:'Căn QA',workCategory:'Trần QA',workVolume:7,volumeUnit:'m²',categoryVolumes:{'Trần QA':7},categoryVolumeUnits:{'Trần QA':'m²'},x:10,y:20,width:10,height:20,frameStatus:'Chưa làm',boardStatus:'Chưa làm',inspectionStatus:'Chưa nghiệm thu',subItems:[{id:'stage-qa',name:'Thi công khung',category:'Trần QA',status:'Chưa làm',inspectionStatus:'Chưa nghiệm thu'}],...life};
+  await setDoc(ref(admin,'rooms',rid),room);
+  await setDoc(ref(admin,'rooms',lid),{...room,id:lid,roomName:'Tuyến phòng QA',workCategory:'Tuyến QA',volumeUnit:'m',categoryVolumes:{'Tuyến QA':7},categoryVolumeUnits:{'Tuyến QA':'m'},subItems:[{id:'stage-line',name:'Thi công khung',category:'Tuyến QA',status:'Chưa làm',inspectionStatus:'Chưa nghiệm thu'}],isPolyline:true,points:[{x:40,y:50},{x:50,y:50}],x:40,y:50,width:10,height:0});
+  assert.equal((await read(viewer,'rooms',rid)).workVolume,7);
+ });
+ const env={...process.env,VITE_APP_ENV:'DEV',VITE_USE_FIREBASE_EMULATORS:'true',VITE_FIREBASE_EMULATOR_PROJECT_ID:project,VITE_BINARY_STORAGE_PROVIDER:'firebase-storage',VITE_HNL_AI_ENABLED:'false',VITE_ENABLE_LEGACY_DRIVE_WRITE:'false',VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE:'false',VITE_R2_GATEWAY_URL:''};
+ for(const k of Object.keys(env))if(/^VITE_FIREBASE_(API_KEY|AUTH_DOMAIN|APP_ID|STORAGE_BUCKET|MESSAGING_SENDER_ID|PROJECT_ID)$/.test(k))delete env[k];
+ server=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','4178','--strictPort'],{env,stdio:['ignore','pipe','pipe']});server.stdout.on('data',c=>logs+=String(c));server.stderr.on('data',c=>logs+=String(c));
+ await wait(async()=> (await fetch(origin)).ok,'Vite ready',45000);
+ browser=await chromium.launch({headless:true,...(process.env.QA_CHROME_EXECUTABLE?{executablePath:process.env.QA_CHROME_EXECUTABLE}:{})});
+ const open=async(role,mobile=false)=>{
+  const context=await browser.newContext({viewport:mobile?{width:390,height:844}:{width:1440,height:900},locale:'vi-VN',hasTouch:mobile,isMobile:mobile,serviceWorkers:'block'});
+  await context.route('**/*',async route=>{const url=route.request().url();if(url===img){await route.fulfill({contentType:'image/svg+xml',body:svg});return}const u=new URL(url);if(['127.0.0.1','localhost'].includes(u.hostname)&&['4178','8080','9099','9199'].includes(u.port)){await route.continue();return}if(blocked.test(url))report.backendAttempts.push(url.split('?')[0]);report.blockedExternal.push(u.origin);await route.abort()});
+  await context.addInitScript(({pid})=>{sessionStorage.setItem('active_project_id',pid);sessionStorage.setItem('qlct_active_tab_v1','floorplan')},{pid});
+  const page=await context.newPage();pages.push(page);page.on('pageerror',e=>report.errors.push(role+': '+String(e)));await page.goto(origin,{waitUntil:'domcontentloaded',timeout:45000});
+  await page.locator('[data-hnl-auth-gate="signed-out"]').waitFor({timeout:40000});
+  await page.evaluate(async(role)=>{const m=await import('/src/lib/firebaseBase.ts');if(!m.FIREBASE_EMULATOR_ENABLED)throw Error('emulator guard');await m.signInWithEmulatorTestAccount(role)},role);
+  await page.locator('[data-hnl-workspace-module="floorplan"]').waitFor({timeout:60000});
+  await page.getByAltText('Tầng QA',{exact:true}).first().waitFor({timeout:45000});
+  await page.screenshot({path:out+'/'+role.toLowerCase()+'-floor.png'});
+  return {page,context};
+ };
+ let A,V;
+ await step('Actual App authenticated ADMIN PC and VIEWER phone, project floor loaded',async()=>{A=await open('ADMIN');V=await open('VIEWER',true);assert.equal(await V.page.locator('[data-hnl-prod-metric-toolbar]').count(),0)});
+ const modal=async(page,id)=>{await page.evaluate(({pid,id,fid})=>window.dispatchEvent(new CustomEvent('qlct-diagnostic-open-entity',{detail:{entityType:'room',projectId:pid,entityId:id,floorId:fid}})),{pid,id,fid});await page.locator('[data-hnl-pc-v32-window="room-editor"]').waitFor({timeout:15000})};
+ const dismiss=async(page)=>{page.once('dialog',d=>d.dismiss())};
+ const accept=async(page)=>{page.once('dialog',d=>d.accept())};
+ await step('Actual two-point calibration: cancel does not write; Save persists to server',async()=>{
+  const p=A.page;await p.getByText('Công cụ vẽ vùng Căn / Phòng',{exact:true}).click();await p.locator('[data-hnl-prod-metric-toolbar]').click();const canvas=p.locator('[data-hnl-prod-metric-canvas]');await canvas.waitFor();await canvas.scrollIntoViewIfNeeded();const box=await canvas.boundingBox();assert(box&&box.width>100);
+  await p.getByLabel('Chiều dài chuẩn mét').fill('10');
+  // Use bottom half away from the calibration card overlay.
+  await canvas.click({position:{x:box.width*.5,y:box.height*.8}});await canvas.click({position:{x:box.width*.6,y:box.height*.8}});
+  await p.getByText('Điểm đã chọn: 2/2',{exact:false}).waitFor();
+  const save=p.getByRole('button',{name:'Lưu tỷ lệ',exact:true});await dismiss(p);await save.click();assert(!(await read(viewer,'floor_plans',fid)).highlightMetricCalibration);
+  await accept(p);await save.click();const f=await wait(async()=>{const d=await read(viewer,'floor_plans',fid);return d?.highlightMetricCalibration||false},'calibration persisted');
+  assert(Math.abs(f.metresPerPixel-.1)<.005,'unexpected scale '+f.metresPerPixel);report.calibration=f;
+ });
+ const draft=metric=>metric.evaluate(b=>Number(String(b.parentElement.querySelector('input').value).replace(/\s/g,'').replace(',','.')));
+ await step('Actual ADMIN area Cancel and draft leave server unchanged; explicit form Save writes',async()=>{
+  const p=A.page;await modal(p,rid);const metric=p.locator('[data-hnl-prod-take-metric-volume]').first();await metric.waitFor();assert.equal(await draft(metric),7);assert(!(await metric.isDisabled()));
+  await dismiss(p);await metric.click();assert.equal(await draft(metric),7);
+  await accept(p);await metric.click();const value=await draft(metric);assert(Math.abs(value-100)<3,'area '+value);assert.equal((await read(viewer,'rooms',rid)).categoryVolumes['Trần QA'],7);
+  await p.screenshot({path:out+'/area-draft.png'});await p.getByRole('button',{name:/Lưu thay đổi nghiệm thu/}).click();await expectVolume(viewer,rid,'Trần QA',value);report.area=value;
+  await modal(V.page,rid);const preview=V.page.locator('[data-hnl-prod-highlight-metric-preview]').first();await preview.waitFor();assert.equal(await V.page.locator('[data-hnl-prod-take-metric-volume]').count(),0);await V.page.screenshot({path:out+'/viewer-area.png'});
+ });
+ await step('Reload App and verify persisted ADMIN quantity, no duplicate rooms',async()=>{
+  await A.page.reload({waitUntil:'domcontentloaded'});await A.page.getByAltText('Tầng QA',{exact:true}).first().waitFor({timeout:45000});await modal(A.page,rid);const metric=A.page.locator('[data-hnl-prod-take-metric-volume]').first();await metric.waitFor();assert.equal(await draft(metric),report.area);const docs=await getDocsFromServer(collection(viewer.db,'projects',pid,'rooms'));assert.deepEqual(docs.docs.map(d=>d.id).sort(),[rid,lid].sort());
+ });
+ await step('No attempted real backend and no uncaught browser errors',async()=>{assert.deepEqual(report.backendAttempts,[]);assert.deepEqual(report.errors,[])});
+ report.status='PASS';
+}catch(e){report.status='FAIL';report.error=String(e?.stack||e);console.error(e);for(let i=0;i<pages.length;i++)await pages[i].screenshot({path:out+'/failure-'+i+'.png',timeout:5000}).catch(()=>{});}
+finally{persist();fs.writeFileSync(out+'/vite.log',logs);await browser?.close().catch(()=>{});if(server&&server.exitCode===null)server.kill('SIGTERM');for(const c of clients){await terminate(c.db).catch(()=>{});await deleteApp(c.app).catch(()=>{})}console.log('FINAL APP QA',report.status,report.checks.length);process.exitCode=report.status==='PASS'?0:1;setTimeout(()=>process.exit(process.exitCode),1000).unref()}

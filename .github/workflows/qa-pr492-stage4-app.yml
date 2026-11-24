@@ -1,0 +1,58 @@
+name: PR492 Stage4 actual App UI isolated
+on:
+  push:
+    branches: [qa/pr492-stage3-isolated-20261124]
+    paths:
+      - '.github/workflows/qa-pr492-stage4-app.yml'
+      - 'scripts/qa-pr492-stage4-app.mjs'
+permissions:
+  contents: read
+jobs:
+  app-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      QA_PR492_RUNTIME_EMULATOR_ONLY: 'true'
+      GCLOUD_PROJECT: demo-hnl-qltc-pr492
+      VITE_APP_ENV: DEV
+      VITE_USE_FIREBASE_EMULATORS: 'true'
+      VITE_FIREBASE_EMULATOR_PROJECT_ID: demo-hnl-qltc-pr492
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_HNL_AI_ENABLED: 'false'
+      VITE_BINARY_STORAGE_PROVIDER: firebase-storage
+      VITE_R2_GATEWAY_URL: ''
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify QA-only ancestry and unchanged application
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/qa/pr492-stage3-isolated-20261124
+          git merge-base --is-ancestor aa9a26d60ae46a0b988f8ae5ce24c631a891b58f HEAD
+          git diff --exit-code aa9a26d60ae46a0b988f8ae5ce24c631a891b58f HEAD -- src package.json package-lock.json firestore.rules storage.rules firebase.json .firebaserc
+          test -z "${GOOGLE_APPLICATION_CREDENTIALS:-}${FIREBASE_TOKEN:-}${CLOUDFLARE_API_TOKEN:-}"
+          node --check scripts/qa-pr492-stage4-app.mjs
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci --no-audit --no-fund
+      - run: npm install --no-save --package-lock=false playwright@1.55.0
+      - name: Real App browser against isolated Auth and Firestore
+        run: |
+          set -euo pipefail
+          if command -v google-chrome >/dev/null; then export QA_CHROME_EXECUTABLE="$(command -v google-chrome)"; else npx playwright install chromium; fi
+          timeout --signal=TERM --kill-after=10s 600s npx --yes firebase-tools@13.35.1 --non-interactive emulators:exec --config firebase.rules-ci.json --project demo-hnl-qltc-pr492 --only auth,firestore,storage "node scripts/qa-pr492-stage4-app.mjs"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr492-stage4-app-${{ github.sha }}
+          path: runtime-evidence/pr492-stage4-app/
+          if-no-files-found: warn
+          retention-days: 14
