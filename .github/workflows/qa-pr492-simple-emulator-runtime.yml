@@ -4,6 +4,8 @@ on:
     branches: [qa/pr492-simple-prod-emulator-20261124]
     paths:
       - '.github/workflows/qa-pr492-simple-emulator-runtime.yml'
+      - 'scripts/qa-pr492-emulator-ui.mjs'
+      - 'scripts/qa-pr492-metric-harness.tsx'
 permissions:
   contents: read
 jobs:
