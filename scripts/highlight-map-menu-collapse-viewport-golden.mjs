@@ -92,3 +92,11 @@ console.log('PASS HNL MAP MENU COLLAPSE + VIEWPORT + 5 BUTTON COLORS: source-onl
 
 assert.match(floor, /showFullscreenDisplaySettings \? 'bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300 border-indigo-600'/, 'Fullscreen Display uses the same active color and ring as calibration');
 assert(floor.includes('!(isFullscreen && showFullscreenDisplaySettings) && (selectedRoomObject'), 'Hide room operations while fullscreen Display is open; keep room selection');
+
+// When measuring, X is the only cancel/close control; retain retry after an inactive notice.
+assert.doesNotMatch(calibrationPanel, /Hủy đo/, 'No redundant cancel button in calibration panel');
+assert.match(calibrationPanel, /\{canSave && !active && <button type="button" onClick=\{open\}[\s\S]*?>Chọn 2 điểm<\/button>/, 'Retry only when inactive and authorized');
+assert.match(calibrationPanel, /disabled=\{!draft\} onClick=\{save\}[^>]*>Xác nhận lưu tỷ lệ<\/button>/);
+assert.match(calibrationPanel, /onClick=\{\(\)=>setPoints\(\[\]\)\}[^>]*>Chọn lại<\/button>/);
+assert.match(calibrationPanel, /event\.key === 'Escape'\) close\(\)/);
+console.log('PASS: single X cancel, authorized inactive retry, reselect/save and Escape retained');
