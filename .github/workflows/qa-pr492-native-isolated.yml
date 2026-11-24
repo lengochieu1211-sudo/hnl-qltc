@@ -1,0 +1,49 @@
+name: PR492 isolated native QA build and shell smoke
+on:
+  push:
+    branches: [qa/pr492-stage3-isolated-20261124]
+    paths:
+      - '.github/workflows/qa-pr492-native-isolated.yml'
+      - 'scripts/qa-pr492-native-isolated.ps1'
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    env:
+      QA_PR492_NATIVE_ONLY: 'true'
+      VITE_APP_ENV: DEV
+      VITE_RUNTIME_BACKEND: firebase-only
+      VITE_USE_FIREBASE_EMULATORS: 'true'
+      VITE_FIREBASE_EMULATOR_PROJECT_ID: demo-hnl-qltc-pr492
+      VITE_FIREBASE_EMULATOR_HOST: 127.0.0.1
+      VITE_BINARY_STORAGE_PROVIDER: firebase-storage
+      VITE_ENABLE_LEGACY_DRIVE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_LOCAL_BUSINESS_CACHE_WRITE: 'false'
+      VITE_ENABLE_LEGACY_DRIVE_READ: 'false'
+      VITE_HNL_AI_ENABLED: 'false'
+      VITE_R2_GATEWAY_URL: ''
+      VITE_FIREBASE_DATABASE_URL: ''
+      QLCT_RELEASE_TAG: 6.3.0-qa-pr492
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Build isolated wrappers and run Windows local fixture probe
+        shell: pwsh
+        run: ./scripts/qa-pr492-native-isolated.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr492-native-qa-${{ github.sha }}
+          path: qa-native-evidence/
+          if-no-files-found: warn
+          retention-days: 14
