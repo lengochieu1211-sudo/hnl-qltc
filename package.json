@@ -55,7 +55,7 @@
     "test:prod-readiness": "node scripts/prod-readiness-golden.mjs",
     "test:excel-security": "tsx scripts/excel-import-security-golden.ts && npm run test:excel-formula",
     "test:structure-group": "tsx scripts/structure-group-golden.ts",
-    "test:room-highlight-transform": "tsx scripts/room-highlight-transform-golden.ts",
+    "test:room-highlight-transform": "tsx scripts/room-highlight-transform-golden.ts && tsx scripts/room-quantity-formula-golden.ts",
     "test:warehouse-ledger": "tsx scripts/warehouse-ledger-reconcile-golden.ts",
     "test:warehouse-recovery": "node --experimental-strip-types scripts/warehouse-recovery-golden.mjs",
     "test:material-norm-display": "tsx scripts/material-norm-display-golden.ts",
