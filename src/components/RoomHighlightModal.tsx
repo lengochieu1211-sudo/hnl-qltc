@@ -758,7 +758,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     if ((source === 'area' && !areSameUnit(unit,'m²')) || ((source === 'perimeter' || source === 'length') && !areSameUnit(unit,'m')))
       return fail('Nguồn đo và ĐVT kết quả không khớp. Dùng công thức nếu cần hệ số chuyển đổi.');
     const variables: QuantityVariables = {};
-    const names = expression.toUpperCase().match(/[A-Z]+/g) || [];
+    const names: string[] = expression.toUpperCase().match(/[A-Z]+/g) || [];
     for (const [name, metric] of [['S','area'],['P','perimeter'],['L','length']] as const) {
       if (!names.includes(name)) continue;
       if (!roomItem?.id || !onMeasureBasicRoom) return fail('Cần lưu phòng và hiệu chuẩn mặt bằng trước.');
