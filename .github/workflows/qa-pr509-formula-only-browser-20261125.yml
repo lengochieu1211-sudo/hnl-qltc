@@ -1,0 +1,37 @@
+name: PR509 isolated Highlight browser gate (NO DEPLOY)
+on:
+  push:
+    branches: [qa/pr509-formula-only-browser-20261125]
+    paths: ['.github/workflows/qa-pr509-formula-only-browser-20261125.yml']
+permissions:
+  contents: read
+jobs:
+  highlight-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Pin exact approved source and no source changes
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = '94a3c4fe6e562b9ec6dfba54cdea0b4c8efd3be0'
+          git diff --exit-code HEAD^ HEAD -- src package.json package-lock.json firebase.json firestore.rules storage.rules cloudflare
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: |
+          npm install --no-save --package-lock=false playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - run: node scripts/highlight-pr509-browser-golden.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HNL-PR509-Highlight-browser-evidence
+          path: runtime-evidence/pr509-highlight/
+          retention-days: 14

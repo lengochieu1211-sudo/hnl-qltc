@@ -1,0 +1,63 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {spawn} from 'node:child_process';
+import {chromium} from 'playwright';
+const url='http://127.0.0.1:4187/scripts/fixtures/highlight-pr507/index.html';
+const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','4187','--strictPort'],{env:{...process.env,VITE_APP_ENV:'DEV',VITE_RUNTIME_BACKEND:'firebase-only',VITE_USE_FIREBASE_EMULATORS:'true',VITE_FIREBASE_EMULATOR_PROJECT_ID:'demo-hnl-qltc-dev'},stdio:['ignore','pipe','pipe']});
+let log='';for(const s of [server.stdout,server.stderr])s.on('data',d=>log+=String(d));let browser;
+const report={source:'94a3c4fe6e562b9ec6dfba54cdea0b4c8efd3be0',scope:'real component browser, synthetic data, no live Firebase or R2',checks:[]};
+fs.mkdirSync('runtime-evidence/pr509-highlight',{recursive:true});
+try {
+ let ready=false;for(let i=0;i<120;i++){try{if((await fetch(url)).ok){ready=true;break}}catch{}await new Promise(r=>setTimeout(r,250));}assert(ready,log.slice(-2000));
+ browser=await chromium.launch({headless:true});
+ for(const [width,height,dark] of [[1280,800,false],[393,852,false],[360,640,true]]){
+  const ctx=await browser.newContext({viewport:{width,height},isMobile:width<500,hasTouch:width<500,locale:'vi-VN',colorScheme:dark?'dark':'light'});
+  await ctx.route('**/*',r=>new URL(r.request().url()).hostname==='127.0.0.1'?r.continue():r.abort());
+  const page=await ctx.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
+  await page.goto(url+'?unit=md'+(dark?'&dark':''),{waitUntil:'domcontentloaded'});
+  const main=page.getByRole('textbox',{name:'Khối lượng hạng mục chính Len QA',exact:true});
+  await main.waitFor({state:'visible'});
+  assert.equal(await page.locator('[data-hnl-basic-room-quantity]').count(),0);
+  assert.equal(await page.getByRole('button',{name:/^Tính (diện tích|chu vi)$/}).count(),0);
+  await main.click();await main.fill('L');await main.blur();assert.equal(await main.inputValue(),'30');
+  const mainHelp=page.getByRole('button',{name:'Hướng dẫn công thức hạng mục chính Len QA',exact:true});await mainHelp.click();
+  assert.equal(await page.locator('[data-hnl-quantity-calculator="hạng mục chính Len QA"] [role=note]').innerText(),'S: Diện tích · L: Chu vi/chiều dài');
+  await main.click();await main.fill('L*2');await main.blur();assert.equal(await main.inputValue(),'60');
+  const sub=page.getByRole('textbox',{name:'Khối lượng hạng mục con Len con QA',exact:true});await sub.fill('KL*0,5');await sub.blur();assert.equal(await sub.inputValue(),'30');
+  await page.getByRole('button',{name:'Hướng dẫn công thức hạng mục con Len con QA',exact:true}).click();
+  assert.match(await page.locator('[data-hnl-quantity-calculator="hạng mục con Len con QA"] [role=note]').innerText(),/KL: Khối lượng hạng mục chính/);
+  const select=page.getByRole('combobox',{name:'Đơn vị hạng mục con Len con QA',exact:true});
+  assert.deepEqual(await select.locator('option').evaluateAll(els=>els.map(e=>e.value)),['__main__','m²','m','md','m³','Cái','Thanh']);
+  const legacy=page.getByRole('combobox',{name:'Đơn vị hạng mục con Đơn vị cũ QA',exact:true});assert.equal(await legacy.inputValue(),'__custom__');assert.match(await legacy.locator('option:checked').innerText(),/Bộ/);
+  assert.equal(await page.locator('[data-hnl-quantity-calculator] input[type=checkbox]').count(),0,'no manual auto checkbox');
+  await main.click();assert.equal(await main.inputValue(),'L*2');await main.fill('80');await main.blur();assert.equal(await main.inputValue(),'80','main input actually changed');
+  await page.waitForTimeout(800);assert.equal(await sub.inputValue(),'40',JSON.stringify(await page.locator('[data-hnl-quantity-calculator]').evaluateAll(els=>els.map(e=>({label:e.getAttribute('data-hnl-quantity-calculator'),value:e.querySelector('input')?.value,text:e.textContent})))));
+  await sub.click();assert.equal(await sub.inputValue(),'KL*0,5');await sub.fill('2x3');await sub.blur();assert.equal(await sub.inputValue(),'6');
+  await main.click();await main.fill('100');await main.blur();await page.waitForTimeout(500);assert.equal(await sub.inputValue(),'6');
+  assert.equal(await page.evaluate(()=>window.qaSaves.length),0,'draft only until explicit save');
+  await main.click();await main.fill('L*2');await main.blur();
+  await page.getByRole('button',{name:'Lưu thay đổi nghiệm thu',exact:true}).click();
+  await page.waitForFunction(()=>window.qaSaves.length===1);
+  const saved=await page.evaluate(()=>window.qaSaves[0]);
+  assert.equal(saved.quantityFormulaSettings['main:id:qa-cat'].expression,'L*2');
+  assert.equal(saved.quantityFormulaSettings['main:id:qa-cat'].auto,true);
+  assert.equal(saved.quantityFormulaSettings['sub:qa-sub'].expression,'2x3');
+  assert.equal(saved.quantityFormulaSettings['sub:qa-sub'].auto,false);
+  assert.equal(saved.categoryVolumes['Len QA'],60);
+  assert.equal(saved.subItems.find(x=>x.id==='qa-sub').workVolume,6);
+  assert.equal(saved.subItems.find(x=>x.id==='qa-old').volumeUnit,'Bộ');
+  assert.deepEqual(errors,[]);
+  await page.screenshot({path:'runtime-evidence/pr509-highlight/'+width+(dark?'-dark':'')+'.png'});
+  report.checks.push({width,height,dark,status:'PASS',measure:'30 md',formula:'60',sub:'30→40→6 fixed',persistedAuto:true,persistedNumericAuto:false,legacy:'Bộ'});
+  await page.goto(url+'?unit=md&readonly',{waitUntil:'domcontentloaded'});
+  await page.getByRole('textbox',{name:'Khối lượng hạng mục chính Len QA',exact:true}).waitFor({state:'visible'});
+  assert(await page.getByRole('textbox',{name:'Khối lượng hạng mục chính Len QA',exact:true}).isDisabled());
+  assert.equal(await page.locator('[data-hnl-basic-room-quantity]').count(),0);
+  assert.equal(await page.locator('[data-hnl-sub-count-unit]').count(),0);
+  assert.equal(await page.evaluate(()=>window.qaSaves.length),0);
+  report.checks.push({width,role:'read-only fixture',status:'PASS'});
+  await ctx.close();
+ }
+ report.status='PASS';console.log(JSON.stringify(report));
+}catch(e){report.status='FAIL';report.error=String(e.stack||e);console.error(report.error);process.exitCode=1}
+finally{fs.writeFileSync('runtime-evidence/pr509-highlight/report.json',JSON.stringify(report,null,2));await browser?.close();server.kill('SIGTERM');}
