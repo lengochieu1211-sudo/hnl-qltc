@@ -156,12 +156,11 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 }) => {
   const roomDraftDirtyRef = React.useRef(false);
   const countStageAfterSaveRef = React.useRef<string | null>(null);
-  const basicMeasuredRef = React.useRef<Record<string, { unit: 'm²' | 'm' | 'md'; value: number; key: string }>>({});
   type DraftMeasurement = { cat: string; stageId?: string; expression: string; source: string; unit: string; value: number; key: string };
   type QuantityDraft = { raw: string; auto: boolean; error?: string };
   const formulaMeasuredRef = React.useRef<Record<string, DraftMeasurement>>({});
   const [quantityDrafts,setQuantityDrafts] = useState<Record<string,QuantityDraft>>({});
-  useEffect(() => { roomDraftDirtyRef.current = false; basicMeasuredRef.current = {}; formulaMeasuredRef.current = {}; setQuantityDrafts({}); }, [isOpen, roomItem?.id, floorId]);
+  useEffect(() => { roomDraftDirtyRef.current = false; formulaMeasuredRef.current = {}; setQuantityDrafts({}); }, [isOpen, roomItem?.id, floorId]);
   const closeRoomWithDraftGuard = (label: string) => {
     if (roomDraftDirtyRef.current && !window.confirm(`${label}? Các thay đổi chưa nhấn Lưu sẽ không được lưu. Tiếp tục?`)) return;
     roomDraftDirtyRef.current = false;
@@ -794,7 +793,6 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     if (stage) {
       handleUpdateSubItem(stage.id,{workVolume:result.value,highlightVolumeMode:'manual',highlightCountMode:'manual'});
     } else {
-      delete basicMeasuredRef.current[cat];
       setCategoryVolumes(prev=>({...prev,[key]:result.value}));
       setVolumeStrings(prev=>({...prev,[cat]:formatDecimal(result.value),[key]:formatDecimal(result.value)}));
       if (workCategory.trim().toLocaleLowerCase('vi-VN') === cat.trim().toLocaleLowerCase('vi-VN')) setWorkVolume(result.value);
@@ -830,7 +828,6 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       if(stage) setSubItems(prev=>prev.map(s=>{if(s.id!==stage.id)return s;const {workVolume: _removed,...rest}=s;return {...rest,highlightVolumeMode:'manual',highlightCountMode:'manual'};}));
       else {
         const key=getCategoryInputKey(cat);
-        delete basicMeasuredRef.current[cat];
         setCategoryVolumes(prev=>({...prev,[key]:0}));
         setVolumeStrings(prev=>({...prev,[cat]:'',[key]:''}));
         if(workCategory.trim().toLocaleLowerCase('vi-VN')===cat.trim().toLocaleLowerCase('vi-VN'))setWorkVolume(0);
@@ -842,27 +839,6 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       const old=prev[id];
       return old?.raw===next.raw && old?.auto===next.auto && old?.error===next.error?prev:{...prev,[id]:next};
     });
-  };
-  const calculateBasicRoomQuantity = (cat: string) => {
-    if (ADVANCED_HIGHLIGHT_ENABLED || !roomItem?.id || !onMeasureBasicRoom || structureReadOnly ||
-        roomItem.positionLocked || roomItem.inspectionStatus === 'Đạt nghiệm thu') return;
-    const unit = getBasicMeasureUnit(cat);
-    if (!unit) { window.alert('Chưa xác định ĐVT m², m hoặc md của hạng mục chính.'); return; }
-    const result = onMeasureBasicRoom(roomItem, unit);
-    if (result.valid === false) { window.alert(result.reason); return; }
-    // Match the existing room-form number precision; never write on measurement click.
-    const value = Math.round(result.value * 100) / 100;
-    if (value <= 0 || !Number.isFinite(value)) { window.alert('Kết quả quá nhỏ hoặc không hợp lệ.'); return; }
-    if (!window.confirm(`Dùng ${formatDecimal(value)} ${unit} từ biên Highlight căn/phòng cho “${cat}”? Chỉ cập nhật ô khối lượng, chưa lưu.`)) return;
-    roomDraftDirtyRef.current = true;
-    const key = getCategoryInputKey(cat);
-    // Keep the original category key (ID or title), not a duplicate quantity.
-    delete formulaMeasuredRef.current['main:'+cat];
-    setQuantityDrafts(prev=>({...prev,[formulaId(cat)]:{raw:formatDecimal(value),auto:false}}));
-    basicMeasuredRef.current[cat] = { unit, value, key };
-    setCategoryVolumes(prev => ({ ...prev, [key]: value }));
-    setVolumeStrings(prev => ({ ...prev, [cat]: formatDecimal(value), [key]: formatDecimal(value) }));
-    if (workCategory.trim().toLocaleLowerCase('vi-VN') === cat.trim().toLocaleLowerCase('vi-VN')) setWorkVolume(value);
   };
   const getHighlightRoom = () => ({ x, y, width, height, points, isPolyline });
   const hasIndependentTotal = (cat: string) => Object.prototype.hasOwnProperty.call(categoryHighlightTotalVolumes, cat);
@@ -1364,19 +1340,6 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       return;
     }
 
-    // Recheck the same room, current calibration and unit before the ordinary save.
-    // Do not treat a changed floor/room or a revoked role as an accepted measurement.
-    if (!ADVANCED_HIGHLIGHT_ENABLED) {
-      for (const [cat, measurement] of Object.entries<{ unit: 'm²' | 'm' | 'md'; value: number; key: string }>(basicMeasuredRef.current)) {
-        const measured = roomItem && onMeasureBasicRoom && onMeasureBasicRoom(roomItem, measurement.unit);
-        if (structureReadOnly || !activeCategories.includes(cat) || getBasicMeasureUnit(cat) !== measurement.unit ||
-            !measured || measured.valid === false || Math.round(measured.value * 100) / 100 !== measurement.value ||
-            categoryVolumes[measurement.key] !== measurement.value) {
-          window.alert('Khối lượng đo của “' + cat + '” không còn khớp mặt bằng, phòng hoặc ĐVT hiện tại. Hãy tính lại hoặc nhập tay trước khi lưu.');
-          return;
-        }
-      }
-    }
     for (const [refKey, measured] of Object.entries<DraftMeasurement>(formulaMeasuredRef.current)) {
       const stage = measured.stageId ? subItems.find(s=>s.id===measured.stageId) : undefined;
       if (!activeCategories.includes(measured.cat) || (measured.stageId && (!stage || (stage.category || workCategory) !== measured.cat))) {
@@ -1491,7 +1454,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
         .filter(Boolean);
       const uniqueSubUnits = Array.from(new Set(explicitSubUnits));
       const catalogUnit = getRoomWorkCategoryUnit(cat, workVolumes, floorId);
-      acc[cat] = basicMeasuredRef.current[cat]?.unit || normalizeUnit(catalogUnit || (uniqueSubUnits.length === 1 ? uniqueSubUnits[0] : '') || roomItem?.categoryVolumeUnits?.[cat] || volumeUnit || 'm²') || 'm²';
+      acc[cat] = normalizeUnit(catalogUnit || (uniqueSubUnits.length === 1 ? uniqueSubUnits[0] : '') || roomItem?.categoryVolumeUnits?.[cat] || volumeUnit || 'm²') || 'm²';
       return acc;
     }, {});
 
@@ -1532,7 +1495,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       workVolume: ADVANCED_HIGHLIGHT_ENABLED && categoryHighlightAutoMode[effectiveWorkCategory] && roomItem?.inspectionStatus !== 'Đạt nghiệm thu'
         ? Math.round(getHighlightTotalQuantity(effectiveWorkCategory) * getMainHighlightResult(effectiveWorkCategory).ratio * 10000) / 10000
         : (parsedVol !== undefined && !isNaN(parsedVol) ? parsedVol : undefined),
-      volumeUnit: basicMeasuredRef.current[effectiveWorkCategory]?.unit || getCategorySourceUnit(effectiveWorkCategory),
+      volumeUnit: getCategorySourceUnit(effectiveWorkCategory),
       x,
       y,
       width,
@@ -2043,11 +2006,6 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                               onEdit={raw=>editQuantityInput(catName,raw)}
                               onRecalculate={()=>editQuantityInput(catName,input.raw)}/>;
                           })()}
-                          {!ADVANCED_HIGHLIGHT_ENABLED && !structureReadOnly && roomItem?.id && onMeasureBasicRoom && getBasicMeasureUnit(catName) && <button type="button" data-hnl-basic-room-quantity={catName}
-                            disabled={roomItem.inspectionStatus === 'Đạt nghiệm thu' || roomItem.positionLocked === true}
-                            onClick={() => calculateBasicRoomQuantity(catName)}
-                            title="Tính từ biên Highlight căn/phòng theo tỷ lệ đã lưu; chưa ghi dữ liệu"
-                            className="shrink-0 border-l border-emerald-200 pl-1.5 text-[10px] font-extrabold text-indigo-700 hover:text-indigo-900 disabled:opacity-40">{getBasicMeasureUnit(catName) === 'm²' ? 'Tính diện tích' : 'Tính chu vi'}</button>}
                           {ADVANCED_HIGHLIGHT_ENABLED && !structureReadOnly && roomItem?.id && onStartDrawOnMap && <button type="button" data-hnl-ui-only="true" data-hnl-main-quantity-map={catName}
                             disabled={roomItem.inspectionStatus === 'Đạt nghiệm thu' || roomItem.positionLocked === true}
                             onClick={() => {
