@@ -162,6 +162,7 @@ import {
 import { canApplyDirectHighlightShapes, canApplyDirectHighlightQuantity } from './utils/floorHighlightDirectShapes';
 import type { DirectHighlightCommitRequest } from './utils/floorHighlightDirectShapes';
 import { floorMetricSourceKey } from './utils/highlightMetricGeometry';
+import { recalculateLinkedRoomQuantities } from './utils/roomQuantityAutoUpdate';
 import { GoogleAuthHeader } from './components/GoogleAuthHeader';
 import { OfflineSyncBanner } from './components/OfflineSyncBanner';
 import { ProjectManagerModal } from './components/ProjectManagerModal';
@@ -6852,9 +6853,8 @@ function AuthenticatedApp() {
 
   const handleUpdateFloorPlan = (id: string, updates: Partial<FloorPlan>) => {
     if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
-    updateAppData((prev) => ({
-      ...prev,
-      floorPlans: prev.floorPlans.map((fp) => {
+    updateAppData((prev) => {
+      const floorPlans = prev.floorPlans.map((fp) => {
         if (fp.id !== id) return fp;
         // Cách 2: refuse a calibration prepared against an outdated floor image.
         // This is a local guard only; remote multi-user CAS remains a separate gate.
@@ -6865,8 +6865,16 @@ function AuthenticatedApp() {
           ? { ...fp, ...updates, updatedAt: Math.max(Date.now(), Number(fp.updatedAt || 0) + 1),
               revision: Math.max(0, Number(fp.revision || 0)) + 1 }
           : { ...fp, ...updates };
-      }),
-    }));
+      });
+      const before=prev.floorPlans.find(fp=>fp.id===id), after=floorPlans.find(fp=>fp.id===id);
+      const changedCalibration=!!updates.highlightMetricCalibration && before!==after && before?.highlightMetricCalibration!==after?.highlightMetricCalibration;
+      const roomProgressList=changedCalibration?prev.roomProgressList.map(room=>{
+        if(room.floorId!==id)return room;
+        const recalculated=recalculateLinkedRoomQuantities(room,after,prev.workVolumes);
+        return recalculated===room?room:{...recalculated,updatedAt:Math.max(Date.now(),room.updatedAt+1)};
+      }):prev.roomProgressList;
+      return {...prev,floorPlans,roomProgressList};
+    });
   };
 
   const handleUpdateFloorPlanImage = async (id: string, imageUrl: string) => {
@@ -7522,9 +7530,11 @@ function AuthenticatedApp() {
     updateAppData((prev) => {
       const existing = room.id ? prev.roomProgressList.find((r) => r.id === room.id) : undefined;
       if (existing) {
-        const nextRoom = canManageFloorPlanStructure(currentUserRole)
+        const candidate = canManageFloorPlanStructure(currentUserRole)
           ? { ...existing, ...room, id: existing.id, createdAt: existing.createdAt || updatedAt, updatedAt }
           : { ...applyEditorRoomOperationalUpdate(existing, room), updatedAt };
+        const nextRoom = canManageFloorPlanStructure(currentUserRole) && !existing.positionLocked && existing.inspectionStatus!=='Đạt nghiệm thu'
+          ? recalculateLinkedRoomQuantities(candidate,prev.floorPlans.find(fp=>fp.id===candidate.floorId),prev.workVolumes) : candidate;
         return {
           ...prev,
           roomProgressList: prev.roomProgressList.map((r) => (r.id === existing.id ? nextRoom : r)),
@@ -7548,9 +7558,11 @@ function AuthenticatedApp() {
       roomProgressList: prev.roomProgressList.map((r) => {
         const updated = roomMap.get(r.id);
         if (!updated) return r;
-        return canManageFloorPlanStructure(currentUserRole)
+        const candidate = canManageFloorPlanStructure(currentUserRole)
           ? { ...r, ...updated, updatedAt }
           : { ...applyEditorRoomOperationalUpdate(r, updated), updatedAt };
+        return canManageFloorPlanStructure(currentUserRole) && !r.positionLocked && r.inspectionStatus!=='Đạt nghiệm thu'
+          ? recalculateLinkedRoomQuantities(candidate,prev.floorPlans.find(fp=>fp.id===candidate.floorId),prev.workVolumes) : candidate;
       }),
     }));
   };
