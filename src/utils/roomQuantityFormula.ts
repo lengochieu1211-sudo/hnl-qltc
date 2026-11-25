@@ -3,6 +3,12 @@ export type QuantityVariable = 'S' | 'P' | 'L' | 'KL';
 export type QuantityVariables = Partial<Record<QuantityVariable, number>>;
 export type QuantityFormulaResult = { valid: true; value: number } | { valid: false; reason: string };
 
+/** Only recognized quantity variables create a live link; numeric multiplication x/X is not a variable. */
+export function hasLinkedQuantityVariables(input: string): boolean {
+  return (input.toUpperCase().match(/[A-Z]+/g) || []).some(token =>
+    token === 'S' || token === 'P' || token === 'L' || token === 'KL');
+}
+
 export function evaluateRoomQuantityFormula(input: string, variables: QuantityVariables = {}): QuantityFormulaResult {
   const invalid = (reason: string): QuantityFormulaResult => ({ valid: false, reason });
   if (typeof input !== 'string' || !input.trim() || input.length > 256) return invalid('Công thức trống hoặc quá dài.');

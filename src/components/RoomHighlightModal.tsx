@@ -37,7 +37,7 @@ import { normalizeUnit, areSameUnit, isHighlightLengthUnit } from '../utils/unit
 import { totalCountPoints } from '../utils/highlightCountPoints';
 import { getRoomWorkCategoryUnit } from '../utils/roomCategoryUnit';
 import { ADVANCED_HIGHLIGHT_ENABLED, getBasicRoomMetricUnit, type BasicRoomQuantitySource } from '../utils/roomHighlightBasicMetric';
-import { evaluateRoomQuantityFormula, type QuantityVariables } from '../utils/roomQuantityFormula';
+import { evaluateRoomQuantityFormula, hasLinkedQuantityVariables, type QuantityVariables } from '../utils/roomQuantityFormula';
 import { RoomQuantityCalculator } from './RoomQuantityCalculator';
 import { roomFormulaCategoryKey } from '../utils/roomQuantityAutoUpdate';
 import type { MetricMeasure } from '../utils/highlightMetricGeometry';
@@ -818,7 +818,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     return {id,raw:draft?.raw ?? (actual===undefined||actual===null?'':formatDecimal(actual)),auto:draft?.auto??false,
       error:draft?.error,result:actual===undefined||actual===null||!Number.isFinite(actual)?null:actual};
   };
-  const editQuantityInput = (cat:string, raw:string, auto:boolean, stage?:RoomSubItem) => {
+  const editQuantityInput = (cat:string, raw:string, stage?:RoomSubItem) => {
+    const auto = hasLinkedQuantityVariables(raw);
     if (quantityLocked || stage?.status==='Đã hoàn thành' || stage?.inspectionStatus==='Đạt nghiệm thu') return;
     const id=formulaId(cat,stage);
     const refKey=stage?'sub:'+stage.id:'main:'+cat;
@@ -841,14 +842,6 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       const old=prev[id];
       return old?.raw===next.raw && old?.auto===next.auto && old?.error===next.error?prev:{...prev,[id]:next};
     });
-  };
-  const toggleQuantityAuto = (cat:string, enabled:boolean, stage?:RoomSubItem) => {
-    const input=getQuantityInput(cat,stage);
-    if(enabled) editQuantityInput(cat,input.raw,true,stage);
-    else {
-      roomDraftDirtyRef.current=true;
-      setQuantityDrafts(prev=>({...prev,[input.id]:{raw:input.raw,auto:false,...(input.error?{error:input.error}:{})}}));
-    }
   };
   const calculateBasicRoomQuantity = (cat: string) => {
     if (ADVANCED_HIGHLIGHT_ENABLED || !roomItem?.id || !onMeasureBasicRoom || structureReadOnly ||
@@ -1510,10 +1503,10 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
       const raw=draft.raw.trim();
       if(!raw || !/[A-Za-z+*/()\-×÷:]/.test(raw)) {delete quantityFormulaSettings[id];return;}
       if(ref && ref.expression===draft.raw && !draft.error) {
-        quantityFormulaSettings[id]={expression:raw,auto:draft.auto,categoryKey:formulaCategoryKey(cat),unit:ref.unit,value:ref.value};
+        quantityFormulaSettings[id]={expression:raw,auto:hasLinkedQuantityVariables(raw),categoryKey:formulaCategoryKey(cat),unit:ref.unit,value:ref.value};
       } else {
         const saved=quantityFormulaSettings[id];
-        if(saved && saved.expression===raw && !draft.error) quantityFormulaSettings[id]={...saved,auto:draft.auto};
+        if(saved && saved.expression===raw && !draft.error) quantityFormulaSettings[id]={...saved,auto:hasLinkedQuantityVariables(raw)};
       }
     };
     if(!structureReadOnly) {
@@ -2047,9 +2040,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                             const input=getQuantityInput(catName);
                             return <RoomQuantityCalculator label={'hạng mục chính '+catName} unit={getBasicMeasureUnit(catName) || getCategorySourceUnit(catName)} raw={input.raw} result={input.result} auto={input.auto} error={input.error}
                               disabled={quantityLocked} refreshKey={JSON.stringify([roomItem?.revision,roomItem?.updatedAt,getCategorySourceUnit(catName)])}
-                              onEdit={raw=>editQuantityInput(catName,raw,input.auto)}
-                              onToggleAuto={enabled=>toggleQuantityAuto(catName,enabled)}
-                              onRecalculate={()=>editQuantityInput(catName,input.raw,input.auto)}/>;
+                              onEdit={raw=>editQuantityInput(catName,raw)}
+                              onRecalculate={()=>editQuantityInput(catName,input.raw)}/>;
                           })()}
                           {!ADVANCED_HIGHLIGHT_ENABLED && !structureReadOnly && roomItem?.id && onMeasureBasicRoom && getBasicMeasureUnit(catName) && <button type="button" data-hnl-basic-room-quantity={catName}
                             disabled={roomItem.inspectionStatus === 'Đạt nghiệm thu' || roomItem.positionLocked === true}
@@ -2326,9 +2318,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                   return <RoomQuantityCalculator label={'hạng mục con '+item.name} allowParent raw={input.raw} result={input.result} auto={input.auto} error={input.error}
                                     disabled={quantityLocked || item.status==='Đã hoàn thành' || item.inspectionStatus==='Đạt nghiệm thu'}
                                     refreshKey={JSON.stringify([roomItem?.revision,roomItem?.updatedAt,getCategoryVolume(catName),item.volumeUnit,getCategorySourceUnit(catName)])}
-                                    onEdit={raw=>editQuantityInput(catName,raw,input.auto,item)}
-                                    onToggleAuto={enabled=>toggleQuantityAuto(catName,enabled,item)}
-                                    onRecalculate={()=>editQuantityInput(catName,input.raw,input.auto,item)}/>;
+                                    onEdit={raw=>editQuantityInput(catName,raw,item)}
+                                    onRecalculate={()=>editQuantityInput(catName,input.raw,item)}/>;
                                 })()}
                               </div>}
                               {/* ĐVT Cái: count positions are stored separately from m² highlights and Defects. */}

@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import type { FloorPlan, RoomProgressItem, WorkVolume } from '../src/types';
 import { createFloorMetricCalibration } from '../src/utils/highlightMetricGeometry.ts';
 import { measureBasicRoomQuantitySource } from '../src/utils/roomHighlightBasicMetric.ts';
-import { evaluateRoomQuantityFormula } from '../src/utils/roomQuantityFormula.ts';
+import { evaluateRoomQuantityFormula, hasLinkedQuantityVariables } from '../src/utils/roomQuantityFormula.ts';
 import { recalculateLinkedRoomQuantities } from '../src/utils/roomQuantityAutoUpdate';
 import fs from 'node:fs';
 
+for(const raw of ['S','L*2','KL*0,5','(S+P)*2','s','p','l','kl']) assert.equal(hasLinkedQuantityVariables(raw),true,raw);
+for(const raw of ['','100','1,25','2*3','2x3','2X3','(2+3)*4','NaN','FOO']) assert.equal(hasLinkedQuantityVariables(raw),false,raw);
 const vars = { S: 20, P: 18, L: 12, KL: 100 };
 const cases: [string, number][] = [
   ['S*1.05',21], ['P*2,8',50.4], ['L*2.8',33.6], ['KL*2',200],
@@ -113,6 +115,10 @@ const modal=fs.readFileSync('src/components/RoomHighlightModal.tsx','utf8');
 assert.match(ui,/ExpressionDisplayInput/);
 assert.doesNotMatch(ui,/<select/);
 assert.match(ui,/resolvedValue=/);
+assert.doesNotMatch(ui,/type="checkbox"|onToggleAuto|Tính lại/);
+assert.match(modal,/const auto = hasLinkedQuantityVariables\(raw\)/);
+assert.match(modal,/auto:hasLinkedQuantityVariables\(raw\),categoryKey/);
+assert.doesNotMatch(modal,/toggleQuantityAuto/);
 assert.match(modal,/quantityFormulaSettings/);
 assert.match(modal,/data-hnl-sub-quantity-group/);
 assert.match(modal,/data-hnl-sub-team-group/);
