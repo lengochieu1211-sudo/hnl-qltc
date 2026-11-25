@@ -82,6 +82,17 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      # Pin the setup action; hosted runner may not expose SDK commands on PATH.
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+      - name: Verify SDK tools and install emulator components
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v sdkmanager
+          sdkmanager --install 'platform-tools' 'emulator' 'system-images;android-34;google_apis;x86_64'
+          command -v adb
+          command -v avdmanager
+          test -x "$ANDROID_HOME/emulator/emulator"
       - uses: actions/download-artifact@v4
         with:
           name: pr492-native-qa-${{ github.sha }}
@@ -98,7 +109,6 @@ jobs:
           sha256sum qa-native-evidence/HNL-QLTC-QA-PR492-Android.apk > runtime-evidence/pr492-android/APK-SHA256.txt
           test -e /dev/kvm
           sudo chmod a+rw /dev/kvm
-          sdkmanager --install 'system-images;android-34;google_apis;x86_64'
           echo no | avdmanager create avd --force --name hnl-pr492-qa --package 'system-images;android-34;google_apis;x86_64' --device pixel_6
           nohup "$ANDROID_HOME/emulator/emulator" -avd hnl-pr492-qa -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect > "$RUNNER_TEMP/pr492-emulator.log" 2>&1 &
           adb start-server
