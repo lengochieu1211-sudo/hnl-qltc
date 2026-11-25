@@ -36,7 +36,7 @@ const room: RoomProgressItem = {
   id:'room',floorId:floor.id,roomName:'Test',x:10,y:10,width:40,height:40,
   frameStatus:'Chưa làm',boardStatus:'Chưa làm',inspectionStatus:'Chưa nghiệm thu',updatedAt:1
 };
-const measure = (source: 'area'|'perimeter'|'length', candidate = room, sourceFloor = floor) =>
+const measure = (source: 'area'|'perimeter'|'length'|'linear', candidate = room, sourceFloor = floor) =>
   measureBasicRoomQuantitySource({source,room:candidate,floor:sourceFloor,image});
 const expectedMetric = (result: ReturnType<typeof measure>, expected:number) => {
   assert.equal(result.valid,true);
@@ -55,4 +55,8 @@ assert.equal(measure('length',{...line,points:[{x:0,y:0},{x:10,y:10},{x:0,y:0}]}
 assert.equal(measure('length',{...line,points:[{x:0,y:0},{x:120,y:10}]}).valid,false);
 assert.equal(measure('length',line,{...floor,imageRevision:2}).valid,false);
 assert.equal(measure('length',line,{...floor,highlightMetricCalibration:undefined}).valid,false);
-console.log('Explicit basic quantity measurement: PASS (12 cases)');
+expectedMetric(measure('linear'),12);
+expectedMetric(measure('linear',line),6);
+assert.equal(measure('linear',{...line,positionLocked:true}).valid,false);
+assert.equal(measure('linear',line,{...floor,imageRevision:2}).valid,false);
+console.log('Explicit basic quantity measurement: PASS (16 cases)');
