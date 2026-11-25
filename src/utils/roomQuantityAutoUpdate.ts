@@ -50,7 +50,7 @@ export function recalculateLinkedRoomQuantities(room:RoomProgressItem,floor:Floo
     if(expression==='S'&&!areSameUnit(unit,'m²') || (expression==='L'||expression==='P')&&!areSameUnit(unit,'m') ||
        expression==='KL'&&(!parentUnit||!areSameUnit(unit,parentUnit)))return null;
     const vars:QuantityVariables={};
-    const names=expression.match(/[A-Z]+/g)||[];
+    const names: string[] = expression.match(/[A-Z]+/g)||[];
     for(const [name,source] of [['S','area'],['P','perimeter'],['L','linear']] as const){
       if(!names.includes(name))continue;
       const c=floor.highlightMetricCalibration;
