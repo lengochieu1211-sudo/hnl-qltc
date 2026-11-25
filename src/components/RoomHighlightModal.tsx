@@ -759,7 +759,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     for (const [name, metric] of [['S','area'],['P','perimeter'],['L','length']] as const) {
       if (!names.includes(name)) continue;
       if (!roomItem?.id || !onMeasureBasicRoom) return fail('Cần lưu phòng và hiệu chuẩn mặt bằng trước.');
-      const actualMetric = metric === 'length' && !roomItem.isPolyline ? 'perimeter' : metric;
+      const actualMetric = metric === 'length' ? 'linear' : metric;
       const measured = onMeasureBasicRoom(roomItem, metric === 'area' ? 'm²' : 'm', actualMetric);
       if (measured.valid === false) return fail(measured.reason);
       variables[name] = measured.value;
