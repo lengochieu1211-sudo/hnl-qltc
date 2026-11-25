@@ -2043,16 +2043,15 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                       <div data-hnl-room-category-inline-actions="true" className="flex w-full xl:w-auto xl:shrink-0 flex-wrap items-center justify-between gap-2 mt-0.5 xl:mt-0">
                         {/* Interactive Input Volume directly in the list */}
                         <div className="flex flex-wrap items-center gap-1.5 min-w-0 max-w-full bg-emerald-50/70 border border-emerald-100 rounded-xl px-2.5 py-1">
-                          <span className="text-[10px] font-extrabold text-emerald-800">Khối lượng:</span>
+                          <span className="shrink-0 whitespace-nowrap text-[10px] font-extrabold text-emerald-800">KL:</span>
                           {(() => {
                             const input=getQuantityInput(catName);
-                            return <RoomQuantityCalculator label={'hạng mục chính '+catName} raw={input.raw} result={input.result} auto={input.auto} error={input.error}
+                            return <RoomQuantityCalculator label={'hạng mục chính '+catName} unit={getBasicMeasureUnit(catName) || getCategorySourceUnit(catName)} raw={input.raw} result={input.result} auto={input.auto} error={input.error}
                               disabled={quantityLocked} refreshKey={JSON.stringify([roomItem?.revision,roomItem?.updatedAt,getCategorySourceUnit(catName)])}
                               onEdit={raw=>editQuantityInput(catName,raw,input.auto)}
                               onToggleAuto={enabled=>toggleQuantityAuto(catName,enabled)}
                               onRecalculate={()=>editQuantityInput(catName,input.raw,input.auto)}/>;
                           })()}
-                          <span className="text-[10px] font-black text-emerald-800">{getBasicMeasureUnit(catName) || getCategorySourceUnit(catName)}</span>
                           {!ADVANCED_HIGHLIGHT_ENABLED && !structureReadOnly && roomItem?.id && onMeasureBasicRoom && getBasicMeasureUnit(catName) && <button type="button" data-hnl-basic-room-quantity={catName}
                             disabled={roomItem.inspectionStatus === 'Đạt nghiệm thu' || roomItem.positionLocked === true}
                             onClick={() => calculateBasicRoomQuantity(catName)}
@@ -2286,8 +2285,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
                             {/* Quantity and team are separate business sections. */}
                             <div data-hnl-sub-quantity-group="true" className="bg-emerald-50/40 p-2 rounded-xl border border-emerald-100 text-[10.5px]">
-                              <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 mb-1.5">
-                                <span className="font-bold text-slate-600">Khối lượng hạng mục con:</span>
+                              {(ADVANCED_HIGHLIGHT_ENABLED || structureReadOnly) && <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 mb-1.5">
+                                <span className="font-bold text-slate-600">Khối lượng con:</span>
                                 {(() => {
                                   const finalized = item.status === 'Đã hoàn thành' || item.inspectionStatus === 'Đạt nghiệm thu';
                                   const auto = ADVANCED_HIGHLIGHT_ENABLED && item.highlightVolumeMode === 'area' && item.highlightCountMode !== 'points' && !finalized;
@@ -2320,8 +2319,9 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                     </span>
                                   );
                                 })()}
-                              </div>
-                              {!ADVANCED_HIGHLIGHT_ENABLED && !structureReadOnly && <div className="flex flex-wrap items-center gap-2">
+                              </div>}
+                              {!ADVANCED_HIGHLIGHT_ENABLED && !structureReadOnly && <div data-hnl-subitem-editable-quantity={item.id} className="flex flex-wrap items-center gap-1.5">
+                                <span className="shrink-0 whitespace-nowrap font-bold text-slate-600">KL con:</span>
                                 {(() => {
                                   const input=getQuantityInput(catName,item);
                                   return <RoomQuantityCalculator label={'hạng mục con '+item.name} allowParent raw={input.raw} result={input.result} auto={input.auto} error={input.error}
@@ -2333,7 +2333,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                 })()}
                               </div>}
                               {/* ĐVT Cái: count positions are stored separately from m² highlights and Defects. */}
-                              {!structureReadOnly && <div className="mt-3 pt-2 border-t border-slate-200 flex flex-wrap items-center gap-2 text-[10.5px]" data-hnl-sub-unit-spacing="true">
+                              {!structureReadOnly && <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10.5px]" data-hnl-sub-unit-spacing="true">
                                 <label className="font-bold text-slate-600">ĐVT con:
                                   <select aria-label={`Đơn vị hạng mục con ${item.name}`} data-hnl-sub-count-unit="true"
                                     disabled={item.status === 'Đã hoàn thành' || item.inspectionStatus === 'Đạt nghiệm thu' || roomItem?.inspectionStatus === 'Đạt nghiệm thu'}
