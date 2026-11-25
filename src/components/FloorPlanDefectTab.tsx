@@ -11032,7 +11032,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           </div>
 
                           <details className="mt-2 rounded-xl border border-slate-200 bg-white">
-                            <summary className={`cursor-pointer select-none px-2.5 py-2 text-[9.5px] font-extrabold [&::-webkit-details-marker]:hidden ${isSmartPdfNamePatternValid ? 'text-slate-500' : 'text-rose-700'}`}>
+                            <summary className={`hnl-native-disclosure cursor-pointer select-none px-2.5 py-2 text-[9.5px] font-extrabold [&::-webkit-details-marker]:hidden ${isSmartPdfNamePatternValid ? 'text-slate-500' : 'text-rose-700'}`}>
                               Tùy chỉnh kỹ thuật (Regex)
                               {!isSmartPdfNamePatternValid && <span className="ml-1 text-rose-600">· cần sửa</span>}
                             </summary>
