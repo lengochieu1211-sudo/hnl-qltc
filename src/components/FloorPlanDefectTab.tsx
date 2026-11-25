@@ -6707,7 +6707,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       {/* Operational floor target dates belong with the floor plan, not system Configuration. */}
       {activeFloor && (
         <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-          <button
+          <button aria-expanded={showFloorProgressPanel}
             type="button"
             onClick={() => setShowFloorProgressPanel((value) => !value)}
             className="w-full p-3 flex items-center justify-between gap-3 text-left hover:bg-slate-50"
@@ -9898,7 +9898,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                             {room.roomName}
                           </span>
                         </div>
-                        <button
+                        <button aria-expanded={roomExpanded}
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
@@ -9990,7 +9990,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                             <div key={`${catName}-${catIdx}`} className="space-y-2 border border-slate-100 bg-slate-50/50 p-2.5 rounded-xl">
                               {/* Group Header */}
                               <div className="flex items-center justify-between border-b border-slate-200/60 pb-1.5 mb-1 text-xs gap-2">
-                                <button
+                                <button aria-expanded={!collapsedRoomCategoryKeys.has(`${room.id}::${catName}`)}
                                   type="button"
                                   onClick={() => toggleRoomCategoryCollapsed(room.id, catName)}
                                   className="min-w-0 font-extrabold text-slate-800 flex items-center gap-1 text-left hover:text-indigo-700 transition"
@@ -12483,7 +12483,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                               />
                               <span>Chọn tất cả</span>
                             </label>
-                          <button
+                          <button aria-expanded={!isCurrentGroupCollapsed}
                             type="button"
                             onClick={() => toggleManagedStructureGroupCollapsed(currentGroupId)}
                             className="min-w-0 flex items-center gap-1 truncate text-left text-xs font-extrabold text-indigo-900 hover:text-indigo-700"
