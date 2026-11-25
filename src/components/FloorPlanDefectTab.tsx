@@ -52,7 +52,6 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
-  ChevronUp,
   ChevronsDown,
   ChevronsUp,
   Palette,
@@ -6600,7 +6599,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       }
     }} className={`group/map-menu relative w-auto min-w-0 shrink-0 rounded-xl border transition-all open:bg-indigo-600 open:text-white open:font-black open:shadow-sm open:ring-2 open:ring-indigo-300 open:border-indigo-600 ${dark ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-200/90 bg-white text-slate-700 hover:bg-slate-100 shadow-2xs'}`}>
       <summary className="text-xs font-bold group-open/map-menu:font-black px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer whitespace-nowrap list-none" aria-label="Mở tùy chỉnh hiển thị mặt bằng">
-        <span aria-hidden="true" className="text-sm leading-none shrink-0">⚙️</span><span>Hiển thị</span><span className="text-[10px] leading-none transition-transform group-open/map-menu:rotate-180">▾</span>
+        <span aria-hidden="true" className="text-sm leading-none shrink-0">⚙️</span><span>Hiển thị</span><ChevronDown className="hnl-disclosure-chevron h-3.5 w-3.5 group-open/map-menu:rotate-180" aria-hidden="true" />
       </summary>
       <div data-hnl-map-display-popover="true" className={`hnl-mobile-map-display-panel absolute left-0 right-auto top-full z-[95] mt-1 w-[min(18rem,calc(100vw-2rem))] max-h-[min(70dvh,36rem)] overflow-y-auto overscroll-contain rounded-xl border shadow-xl ${dark ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-200 bg-white text-slate-700'}`}>
         {renderMapDisplayControls(dark)}
@@ -6728,7 +6727,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <span className={`hidden sm:inline-flex px-2 py-1 rounded-lg border text-[9px] font-bold ${getFloorTargetState(activeFloor.targetBoardDate).className}`}>
                 Tấm · {getFloorTargetState(activeFloor.targetBoardDate).label}
               </span>
-              {showFloorProgressPanel ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
+              <ChevronDown data-open={showFloorProgressPanel} className="hnl-disclosure-chevron w-4 h-4 text-slate-500" aria-hidden="true" />
             </div>
           </button>
 
@@ -7287,8 +7286,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             <details data-hnl-map-tools-collapsible="true" open={isShapeDrawing ? true : undefined} className="group/map-tools bg-slate-50/90 rounded-xl border border-slate-200/80">
               <summary onClick={(event) => { if (isShapeDrawing) event.preventDefault(); }} className="cursor-pointer select-none px-3 py-2 text-[11px] font-bold text-slate-700 flex items-center justify-between">
                 <span>{canManageStructure && (viewMode === 'highlight' || viewMode === 'all') ? (isShapeDrawing ? 'Đo vẽ khối lượng' : 'Công cụ vẽ vùng Căn / Phòng') : 'Công cụ hiển thị mặt bằng'}</span>
-                <span className="text-slate-400 group-open/map-tools:hidden">Mở</span>
-                <span className="text-slate-400 hidden group-open/map-tools:inline">Thu gọn</span>
+                <ChevronDown className="hnl-disclosure-chevron h-4 w-4 text-slate-500 group-open/map-tools:rotate-180" aria-hidden="true" />
               </summary>
               <div className="p-2 border-t border-slate-200/80 flex flex-wrap items-center justify-start gap-2">
               {/* Group 1: 3 Drawing Tools */}
@@ -7385,7 +7383,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       if (!activeFloor || isCountDrawing || isShapeDrawing || isRoomCreationDrawing || drawTool !== 'none' || isDefectPinPlacementMode) event.preventDefault();
                     }}
                     className="text-xs font-bold group-open/map-menu:font-black px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer whitespace-nowrap list-none aria-disabled:opacity-40">
-                    <span className="text-sm leading-none shrink-0">📏</span><span>Đo tỷ lệ</span><span className="text-[10px] leading-none transition-transform group-open/map-menu:rotate-180">▾</span>
+                    <span className="text-sm leading-none shrink-0">📏</span><span>Đo tỷ lệ</span><ChevronDown className="hnl-disclosure-chevron h-3.5 w-3.5 group-open/map-menu:rotate-180" aria-hidden="true" />
                   </summary>
                   <div data-hnl-map-calibration-popover="true" className="absolute left-0 right-auto top-full z-[95] mt-1 w-[min(18rem,calc(100vw-2rem))] max-h-[min(70dvh,36rem)] overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-3 text-slate-700 shadow-xl space-y-2">
                     <div className="flex items-center justify-between gap-2 text-xs font-black">
@@ -7836,7 +7834,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           aria-label="Mở tùy chỉnh hiển thị mặt bằng"
                           onClick={toggleFullscreenDisplaySettings}
                           className={`min-h-9 rounded-xl border border-slate-600 px-3 text-[11px] font-bold shrink-0 ${showFullscreenDisplaySettings ? 'bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300 border-indigo-600' : 'bg-slate-800 text-slate-100'}`}>
-                          ⚙️ Hiển thị {showFullscreenDisplaySettings ? '▴' : '▾'}
+                          <span className="inline-flex items-center gap-1">⚙️ Hiển thị <ChevronDown data-open={showFullscreenDisplaySettings} className="hnl-disclosure-chevron h-3.5 w-3.5" aria-hidden="true" /></span>
                         </button>
 
                         {/* Room creation and Cách 2 edit are mutually exclusive. */}
@@ -8411,7 +8409,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   onClick={() => setShowHighlightColorLegend((value) => !value)}
                   className="w-full flex items-center justify-between gap-2 px-2.5 py-2 font-extrabold text-left">
                   <span className="truncate">🎨 Màu Highlight ({visibleHighlightColorRows.length})</span>
-                  <span aria-hidden="true">{showHighlightColorLegend ? '▴' : '▾'}</span>
+                  <ChevronDown data-open={showHighlightColorLegend} className="hnl-disclosure-chevron h-3.5 w-3.5" aria-hidden="true" />
                 </button>
                 {showHighlightColorLegend && (
                   <div className="max-h-[32dvh] overflow-y-auto overscroll-contain border-t border-slate-700 p-2 space-y-1.5">
@@ -9910,7 +9908,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           title={roomExpanded ? 'Thu gọn Căn / Phòng' : 'Mở rộng Căn / Phòng'}
                           aria-label={roomExpanded ? 'Thu gọn Căn / Phòng' : 'Mở rộng Căn / Phòng'}
                         >
-                          {roomExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                          <ChevronDown data-open={roomExpanded} className="hnl-disclosure-chevron w-4 h-4" aria-hidden="true" />
                         </button>
                       </div>
 
@@ -9998,9 +9996,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                                   className="min-w-0 font-extrabold text-slate-800 flex items-center gap-1 text-left hover:text-indigo-700 transition"
                                   title={collapsedRoomCategoryKeys.has(`${room.id}::${catName}`) ? 'Mở hạng mục chính' : 'Thu gọn hạng mục chính'}
                                 >
-                                  {collapsedRoomCategoryKeys.has(`${room.id}::${catName}`)
-                                    ? <ChevronDown className="w-3.5 h-3.5 shrink-0" />
-                                    : <ChevronUp className="w-3.5 h-3.5 shrink-0" />}
+                                  <ChevronDown data-open={!collapsedRoomCategoryKeys.has(`${room.id}::${catName}`)} className="hnl-disclosure-chevron w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                                   <span className="truncate">{catName}</span>
                                   <span className="text-[9px] font-bold text-slate-400 shrink-0">({subs.length})</span>
                                 </button>
@@ -11032,7 +11028,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           </div>
 
                           <details className="mt-2 rounded-xl border border-slate-200 bg-white">
-                            <summary className={`cursor-pointer select-none px-2.5 py-2 text-[9.5px] font-extrabold [&::-webkit-details-marker]:hidden ${isSmartPdfNamePatternValid ? 'text-slate-500' : 'text-rose-700'}`}>
+                            <summary className={`hnl-native-disclosure cursor-pointer select-none px-2.5 py-2 text-[9.5px] font-extrabold [&::-webkit-details-marker]:hidden ${isSmartPdfNamePatternValid ? 'text-slate-500' : 'text-rose-700'}`}>
                               Tùy chỉnh kỹ thuật (Regex)
                               {!isSmartPdfNamePatternValid && <span className="ml-1 text-rose-600">· cần sửa</span>}
                             </summary>
@@ -12493,9 +12489,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                             className="min-w-0 flex items-center gap-1 truncate text-left text-xs font-extrabold text-indigo-900 hover:text-indigo-700"
                             title={isCurrentGroupCollapsed ? 'Mở các tầng trong Khu/Khối' : 'Thu gọn các tầng trong Khu/Khối'}
                           >
-                            {isCurrentGroupCollapsed
-                              ? <ChevronDown className="h-3.5 w-3.5 shrink-0" />
-                              : <ChevronUp className="h-3.5 w-3.5 shrink-0" />}
+                            <ChevronDown data-open={!isCurrentGroupCollapsed} className="hnl-disclosure-chevron h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                             <span className="truncate">{getStructureGroupName(currentGroupId, normalizedStructureConfig)}</span>
                           </button>
                         </div>
