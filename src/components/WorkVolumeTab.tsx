@@ -1535,7 +1535,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                       <span className="truncate">
                         {selectedFloors.length > 0 ? selectedFloors.map((id) => floorOptions.find((floor) => floor.id === id)?.label || id).join(', ') : 'Toàn công trình'}
                       </span>
-                      <ChevronDown className="w-5 h-5 text-slate-400 flex-shrink-0" />
+                      <ChevronDown data-open={isFloorDropdownOpen} className="hnl-disclosure-chevron h-4 w-4 text-slate-500" aria-hidden="true" />
                     </div>
                     {isFloorDropdownOpen && (
                       <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-50 max-h-48 overflow-y-auto">
