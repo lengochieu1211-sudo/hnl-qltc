@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { ChevronDown } from 'lucide-react';
 import type { FloorPlan, HighlightRegionShape, Point2D, RoomProgressItem, WorkVolume } from '../types';
 import { getValidFloorMetricCalibration, measureHighlightAreaM2, measureHighlightLengthM, measureWallAreaM2 } from '../utils/highlightMetricGeometry';
 import { getDirectStageCategory, getSavedDirectHighlightShapes, getDirectHighlightCategoryNames, getDirectHighlightEffectiveUnit, resolveDirectHighlightLaunchCategory, mapDirectHighlightPointerToFloor, getDirectHighlightDrawPoint } from '../utils/floorHighlightDirectShapes';
@@ -414,7 +415,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
           {open && <button type="button" data-hnl-direct-highlight-options-toggle="true"
             aria-expanded={showOptions} onClick={() => setShowOptions(v => !v)}
             className="shrink-0 px-2 py-1.5 rounded-lg border border-slate-600 bg-slate-800">
-            {showOptions ? 'Thu gọn' : 'Tùy chọn ▾'}
+            <span className="inline-flex items-center gap-1">Tùy chọn <ChevronDown data-open={showOptions} className="hnl-disclosure-chevron h-3.5 w-3.5" aria-hidden="true" /></span>
           </button>}
           <button type="button" data-hnl-direct-highlight-exit-to-plan="true"
             disabled={saving} onClick={() => exitDrawing(true)}

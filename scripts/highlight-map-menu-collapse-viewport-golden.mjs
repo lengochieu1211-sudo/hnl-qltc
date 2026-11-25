@@ -9,7 +9,7 @@ assert(opening > 0 && banner > opening, 'Normal map toolbar must have a collapsi
 const toolbar = floor.slice(opening, banner);
 assert(toolbar.includes('/* Group 1: 3 Drawing Tools */'));
 assert.match(toolbar,/className="group\/map-tools/);
-assert(toolbar.includes('group-open/map-tools:hidden') && toolbar.includes('group-open/map-tools:inline'));
+assert.match(toolbar,/hnl-disclosure-chevron[^"\n]*group-open\/map-tools:rotate-180/, 'Toolbar disclosure arrow follows its own open state without swapping labels');
 assert.equal((floor.match(/className=\{`group\/map-menu relative/g)||[]).length,1,
   'Display popover uses its own named group, not outer expanded state');
 assert(toolbar.includes('className="group/map-menu relative'), 'Calibration popover has its own independent group');
