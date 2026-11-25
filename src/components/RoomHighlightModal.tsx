@@ -40,6 +40,7 @@ import { getRoomWorkCategoryUnit } from '../utils/roomCategoryUnit';
 import { ADVANCED_HIGHLIGHT_ENABLED, getBasicRoomMetricUnit, type BasicRoomQuantitySource } from '../utils/roomHighlightBasicMetric';
 import { evaluateRoomQuantityFormula, type QuantityVariables } from '../utils/roomQuantityFormula';
 import { RoomQuantityCalculator } from './RoomQuantityCalculator';
+import { roomFormulaCategoryKey } from '../utils/roomQuantityAutoUpdate';
 import type { MetricMeasure } from '../utils/highlightMetricGeometry';
 import { buildMaterialAliasMap, getMaterialIdentityKey, resolveNormMaterialId, normalizeMaterialNameKey } from '../utils/inventoryUtils';
 import { computeMaterialNeeds } from '../utils/materialNeedEngine';
@@ -801,12 +802,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     }
     return null;
   };
-  const formulaCategoryKey = (cat:string) => {
-    const matches=workVolumes.filter(v=>v.title.trim().toLocaleLowerCase('vi-VN')===cat.trim().toLocaleLowerCase('vi-VN'));
-    const scoped=matches.filter(v=>v.floorId===floorId || v.floorIds?.includes(floorId));
-    const ids=[...new Set((scoped.length?scoped:matches).map(v=>v.workCategoryId||v.id).filter(Boolean))];
-    return ids.length===1?'id:'+ids[0]:'legacy:'+getCategoryInputKey(cat);
-  };
+  const formulaCategoryKey = (cat:string) => roomFormulaCategoryKey(cat,workVolumes,floorId,getCategoryInputKey(cat));
   const formulaId = (cat:string, stage?:RoomSubItem) => stage?'sub:'+stage.id:'main:'+formulaCategoryKey(cat);
   const formulaSource = (raw:string) => {
     const clean=raw.trim().replace(/^=/,'').toUpperCase();
