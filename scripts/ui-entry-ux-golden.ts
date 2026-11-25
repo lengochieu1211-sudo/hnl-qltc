@@ -119,7 +119,7 @@ assert(settingsAccordion.includes('<details'), 'Shared Settings entry must retai
 assert(settingsAccordion.includes('<summary'), 'Shared Settings entry must retain a compact semantic trigger');
 assert(settingsAccordion.includes('rounded-2xl border border-slate-200 bg-white shadow-sm'), 'Settings cards must share the same white/border/radius/shadow design system');
 assert(settingsAccordion.includes('ChevronDown'), 'Settings cards must use the shared chevron icon');
-assert(settingsAccordion.includes("open ? 'rotate-180' : ''"), 'Settings chevron must follow shared sheet open state');
+assert(settingsAccordion.includes('data-open={open}') && settingsAccordion.includes('hnl-disclosure-chevron') && hnlThemeCss.includes('.hnl-disclosure-chevron[data-open="true"]'), 'Settings chevron must follow shared sheet open state');
 assert(settingsAccordion.includes('duration-200 ease-out'), 'Settings open/close affordance must use one transition timing');
 assert(settingsAccordion.includes("import { SettingsFeatureSheet } from './SettingsFeatureSheet';"), 'Settings cards must delegate sheet chrome to SettingsFeatureSheet');
 assert(settingsAccordion.includes('<SettingsFeatureSheet'), 'Settings cards must render through SettingsFeatureSheet');
