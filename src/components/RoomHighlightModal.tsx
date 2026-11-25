@@ -779,7 +779,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     const calculated = legacyNumber !== null && Number.isFinite(legacyNumber) && legacyNumber >= 0
       ? {valid:true as const,value:legacyNumber} : evaluateRoomQuantityFormula(normalized,variables);
     if (calculated.valid === false) return calculated;
-    const value = Math.round(calculated.value * 100) / 100;
+    const value = legacyNumber !== null ? calculated.value : Math.round(calculated.value * 100) / 100;
     if (!Number.isFinite(value)) return fail('Kết quả vượt giới hạn.');
     return {valid:true as const,value,unit};
   };
@@ -819,7 +819,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     const saved=roomItem?.quantityFormulaSettings?.[id];
     const compatible=saved && typeof saved.expression==='string' && saved.expression.length<=256 && typeof saved.auto==='boolean' &&
       saved.categoryKey===formulaCategoryKey(cat) && saved.unit===unit && saved.value===actual;
-    const draft=quantityDrafts[id] || (compatible?{raw:saved.expression,auto:saved.auto}:undefined);
+    const draft: QuantityDraft | undefined=quantityDrafts[id] || (compatible?{raw:saved.expression,auto:saved.auto}:undefined);
     return {id,raw:draft?.raw ?? (actual===undefined||actual===null?'':formatDecimal(actual)),auto:draft?.auto??false,
       error:draft?.error,result:actual===undefined||actual===null||!Number.isFinite(actual)?null:actual};
   };
