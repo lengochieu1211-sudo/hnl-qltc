@@ -44,12 +44,13 @@ export function measureBasicRoomHighlight(args: {
 }
 
 /** Explicit source selection; output units are not used to guess the geometry. */
-export type BasicRoomQuantitySource = 'area' | 'perimeter' | 'length';
+export type BasicRoomQuantitySource = 'area' | 'perimeter' | 'length' | 'linear';
 export function measureBasicRoomQuantitySource(args: {
   floor: FloorPlan; image: { width: number; height: number }; room: RoomProgressItem; source: BasicRoomQuantitySource;
 }): MetricMeasure {
   const { floor, image, room, source } = args;
   const invalid = (reason: string): MetricMeasure => ({ valid: false, reason });
+  if (source === 'linear') return measureBasicRoomQuantitySource({ ...args, source: room.isPolyline ? 'length' : 'perimeter' });
   if (source === 'area' || source === 'perimeter') {
     return measureBasicRoomHighlight({ floor, image, room, unit: source === 'area' ? 'm²' : 'm' });
   }
