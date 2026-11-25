@@ -121,3 +121,17 @@ assert.match(modal,/!ADVANCED_HIGHLIGHT_ENABLED && !structureReadOnly && <div da
 assert.match(modal,/unit=\{getBasicMeasureUnit\(catName\) \|\| getCategorySourceUnit\(catName\)\}/);
 
 console.log('Room linked quantity auto-update and UI source Golden PASS');
+
+const highlightCss=fs.readFileSync('src/index.css','utf8');
+const floorUi=fs.readFileSync('src/components/FloorPlanDefectTab.tsx','utf8');
+assert.match(highlightCss,/html :is\(\[data-hnl-workspace-module="floorplan"\], \[data-hnl-pc-v32-window="room-editor"\]\) select/);
+assert.match(highlightCss,/data-hnl-map-tools-collapsible[^\n]*summary::-webkit-details-marker/);
+for(const state of ['showColorPicker','showAdvancedHighlights','showMaterialEstimates','showDimensionSettings']) {
+  assert.ok(modal.includes('data-open={'+state+'}'));
+  assert.ok(modal.includes('aria-expanded={'+state+'}'));
+}
+for(const state of ['showFloorProgressPanel','roomExpanded','showHighlightColorLegend','showFullscreenDisplaySettings','!isCurrentGroupCollapsed']) {
+  assert.ok(floorUi.includes('data-open={'+state+'}'));
+  assert.ok(floorUi.includes('aria-expanded={'+state+'}'));
+}
+console.log('Scoped Highlight compact and nested disclosure Golden PASS');
