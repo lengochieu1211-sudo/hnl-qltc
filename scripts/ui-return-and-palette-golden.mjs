@@ -705,7 +705,9 @@ assert.ok(mathNumberInputCode.includes('formulaRef.current = formula') &&
 assert.ok(quickGridCode.includes("column.type === 'number' && column.allowExpression ? (") &&
   quickGridCode.includes('<ExpressionDisplayInput'), 'Quick Edit uses shared expression view only for allowed numeric cells');
 assert.ok(workVolumeFormCode.includes('<ExpressionDisplayInput') && warehouseFormCode.includes('<ExpressionDisplayInput') &&
-  materialNormFormCode.includes('<ExpressionDisplayInput') && roomHighlightFormCode.includes('<ExpressionDisplayInput'),
+  materialNormFormCode.includes('<ExpressionDisplayInput') && roomHighlightFormCode.includes('<RoomQuantityCalculator') &&
+  read('src/components/RoomQuantityCalculator.tsx').includes('<ExpressionDisplayInput') &&
+  read('src/components/RoomQuantityCalculator.tsx').includes('resolvedValue='),
 'Work Volume, Warehouse, Norm and Floor Plan formula forms use the shared view');
 assert.ok(!roomHighlightFormCode.includes('[catName]: formatDecimal(parsed)'),
 'Room formula must not be discarded on blur');
