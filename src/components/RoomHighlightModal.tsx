@@ -2338,7 +2338,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                     disabled={item.status === 'Đã hoàn thành' || item.inspectionStatus === 'Đạt nghiệm thu' || roomItem?.inspectionStatus === 'Đạt nghiệm thu'}
                                     className="ml-1.5 rounded-lg border border-slate-200 px-2 py-1.5 bg-white text-slate-800"
                                     value={!item.volumeUnit ? '__main__' :
-                                      ['m²','m','Cái','Bộ','Tấm','Thanh','m³','kg','Hộp','Bao','Cuộn'].includes(normalizeUnit(item.volumeUnit))
+                                      ['m²','m','m³','Cái','Thanh'].includes(normalizeUnit(item.volumeUnit))
                                         ? normalizeUnit(item.volumeUnit) : '__custom__'}
                                     onChange={event => {
                                       const next = event.target.value;
@@ -2358,14 +2358,14 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                       setCustomUnitStageId(null);
                                     }}>
                                     <option value="__main__">Theo ĐVT chính ({getCategorySourceUnit(catName)})</option>
-                                    {['m²','m','Cái','Bộ','Tấm','Thanh','m³','kg','Hộp','Bao','Cuộn'].map(unit =>
+                                    {['m²','m','m³','Cái','Thanh'].map(unit =>
                                       <option key={unit} value={unit}>{unit}</option>)}
-                                    <option value="__custom__">{item.volumeUnit && !['m²','m','Cái','Bộ','Tấm','Thanh','m³','kg','Hộp','Bao','Cuộn'].includes(normalizeUnit(item.volumeUnit))
-                                      ? `${item.volumeUnit} (tự nhập)` : 'Nhập đơn vị khác…'}</option>
+                                    {item.volumeUnit && !['m²','m','m³','Cái','Thanh'].includes(normalizeUnit(item.volumeUnit)) &&
+                                      <option value="__custom__">{item.volumeUnit} (đã lưu)</option>}
                                   </select>
                                 </label>
                                 {customUnitStageId !== item.id && item.volumeUnit &&
-                                  !['m²','m','Cái','Bộ','Tấm','Thanh','m³','kg','Hộp','Bao','Cuộn'].includes(normalizeUnit(item.volumeUnit)) &&
+                                  !['m²','m','m³','Cái','Thanh'].includes(normalizeUnit(item.volumeUnit)) &&
                                   item.status !== 'Đã hoàn thành' && item.inspectionStatus !== 'Đạt nghiệm thu' && (
                                     <button type="button" className="text-indigo-700 underline font-bold"
                                       onClick={() => {setCustomUnitStageId(item.id);setCustomUnitText(item.volumeUnit || '');}}>Sửa ĐVT</button>
