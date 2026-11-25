@@ -1986,7 +1986,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                 {normalizedStructureConfig.enabled && (
                   <div className="relative">
                     <button
-                      type="button"
+                      type="button" aria-expanded={showReportStructureGroupPicker}
                       onClick={() => {
                         setShowReportStructureGroupPicker((value) => !value);
                         setShowReportFloorPicker(false);
@@ -1996,7 +1996,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                       className="flex w-full items-center justify-between rounded-xl border border-indigo-200 bg-white p-2.5 text-left text-xs font-semibold"
                     >
                       <span className="truncate">{reportStructureGroupSummary}</span>
-                      <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                      <ChevronDown data-open={showReportStructureGroupPicker} className="hnl-disclosure-chevron h-4 w-4 text-slate-500" aria-hidden="true" />
                     </button>
                     {showReportStructureGroupPicker && (
                       <div className="absolute left-0 right-0 z-40 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
@@ -2015,7 +2015,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
 
                 <div className="relative">
                   <button
-                    type="button"
+                    type="button" aria-expanded={showReportFloorPicker}
                     onClick={() => {
                       setShowReportFloorPicker((value) => !value);
                       setShowReportStructureGroupPicker(false);
@@ -2025,7 +2025,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                     className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold"
                   >
                     <span className="truncate">{reportFloorSummary}</span>
-                    <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                    <ChevronDown data-open={showReportFloorPicker} className="hnl-disclosure-chevron h-4 w-4 text-slate-500" aria-hidden="true" />
                   </button>
                   {showReportFloorPicker && (
                     <div className="absolute left-0 right-0 z-40 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
@@ -2043,7 +2043,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
 
                 <div className="relative">
                   <button
-                    type="button"
+                    type="button" aria-expanded={showReportRoomPicker}
                     onClick={() => {
                       setShowReportRoomPicker((value) => !value);
                       setShowReportStructureGroupPicker(false);
@@ -2053,7 +2053,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                     className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold"
                   >
                     <span className="truncate">{reportRoomSummary}</span>
-                    <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                    <ChevronDown data-open={showReportRoomPicker} className="hnl-disclosure-chevron h-4 w-4 text-slate-500" aria-hidden="true" />
                   </button>
                   {showReportRoomPicker && (
                     <div className="absolute left-0 right-0 z-40 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
@@ -2075,7 +2075,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
 
                 <div className="relative">
                   <button
-                    type="button"
+                    type="button" aria-expanded={showReportTeamPicker}
                     onClick={() => {
                       setShowReportTeamPicker((value) => !value);
                       setShowReportStructureGroupPicker(false);
@@ -2085,7 +2085,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
                     className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold"
                   >
                     <span className="truncate">{reportTeamSummary}</span>
-                    <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                    <ChevronDown data-open={showReportTeamPicker} className="hnl-disclosure-chevron h-4 w-4 text-slate-500" aria-hidden="true" />
                   </button>
                   {showReportTeamPicker && (
                     <div className="absolute left-0 right-0 z-40 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
@@ -2162,8 +2162,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
           <details open data-hnl-report-typography="sort-order" className="group bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden">
             <summary className="cursor-pointer select-none px-3 py-2.5 text-sm font-extrabold text-slate-800 flex items-center justify-between gap-2">
               <span>↕️ Sắp xếp từng phần trong PDF</span>
-              <span className="text-[11px] text-slate-400 group-open:hidden">Mở</span>
-              <span className="text-[11px] text-slate-400 hidden group-open:inline">Thu gọn</span>
+              <ChevronDown className="hnl-disclosure-chevron h-4 w-4 text-slate-500 group-open:rotate-180" aria-hidden="true" />
             </summary>
             <div className="border-t border-slate-200 p-3 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <label className="space-y-1">
@@ -2398,8 +2397,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
             <details className="group bg-white border border-indigo-100 rounded-xl overflow-hidden">
               <summary className="cursor-pointer select-none px-3 py-2 text-sm font-extrabold text-indigo-800 flex items-center justify-between gap-2">
                 <span>🎨 Tùy chỉnh highlight & ký hiệu trên PDF</span>
-                <span className="text-[11px] text-slate-400 group-open:hidden">Mở</span>
-                <span className="text-[11px] text-slate-400 hidden group-open:inline">Thu gọn</span>
+                <ChevronDown className="hnl-disclosure-chevron h-4 w-4 text-slate-500 group-open:rotate-180" aria-hidden="true" />
               </summary>
               <div className="border-t border-indigo-100 p-3 space-y-3">
                 <p className="text-[11px] text-slate-500 leading-relaxed">

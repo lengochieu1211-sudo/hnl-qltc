@@ -3233,12 +3233,12 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                             <div key={cIdx} className="bg-slate-50 p-2 rounded border border-slate-200 space-y-2">
                               <div className="flex items-center gap-2">
                                 <button
-                                  type="button"
+                                  type="button" aria-haspopup="dialog" aria-expanded={crewPicker?.floorIndex === fIdx && crewPicker?.categoryIndex === cIdx && crewPicker?.kind === 'category'}
                                   onClick={() => openCrewPicker(fIdx, cIdx, 'category')}
                                   className="flex-1 min-w-0 flex items-center justify-between gap-2 text-left text-xs bg-white border border-slate-200 px-3 py-2.5 rounded font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                 >
                                   <span className="min-w-0 break-words">{cat.categoryName || 'Chọn hạng mục thi công...'}</span>
-                                  <ChevronDown className="w-4 h-4 shrink-0" />
+                                  <ChevronDown data-open={crewPicker?.floorIndex === fIdx && crewPicker?.categoryIndex === cIdx && crewPicker?.kind === 'category'} className="hnl-disclosure-chevron w-4 h-4" aria-hidden="true" />
                                 </button>
                                 {fw.categories.length > 1 && (
                                   <button
@@ -3269,12 +3269,12 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                     </span>
                                   ))}
                                   <button
-                                    type="button"
+                                    type="button" aria-haspopup="dialog" aria-expanded={crewPicker?.floorIndex === fIdx && crewPicker?.categoryIndex === cIdx && crewPicker?.kind === 'subitem'}
                                     onClick={() => openCrewPicker(fIdx, cIdx, 'subitem')}
                                     className="flex items-center justify-between gap-2 text-left text-xs bg-white border border-slate-200 px-3 py-2.5 rounded min-h-10 w-full"
                                   >
                                     <span>Chọn hoặc thêm công đoạn...</span>
-                                    <ChevronDown className="w-4 h-4 shrink-0" />
+                                    <ChevronDown data-open={crewPicker?.floorIndex === fIdx && crewPicker?.categoryIndex === cIdx && crewPicker?.kind === 'subitem'} className="hnl-disclosure-chevron w-4 h-4" aria-hidden="true" />
                                   </button>
                                 </div>
                               </div>
@@ -4237,7 +4237,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                     })()}
                                     {(line.voucherIds?.length || 0) > 1 && (
                                       <details data-hnl-team-material-voucher-details={line.materialKey} className="mt-1 text-left text-[10px] font-normal text-slate-600">
-                                        <summary className="cursor-pointer font-bold text-cyan-700">Xem {line.voucherIds?.length} phiếu xuất</summary>
+                                        <summary className="hnl-native-disclosure cursor-pointer font-bold text-cyan-700">Xem {line.voucherIds?.length} phiếu xuất</summary>
                                         <div className="mt-1 space-y-1">
                                           {line.voucherIds?.map(id => {
                                             const voucher = structureScopedInventory.find(item => item.id === id && item.type === 'out' && item.deletedAt == null);
@@ -4307,7 +4307,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                       Xem phiếu xuất gốc · {formatDateDDMMYYYY(line.vouchers[0].date)}
                                     </button>
                                   ) : <details data-hnl-team-equipment-voucher-details={line.equipmentKey} className="text-[11px] text-slate-600">
-                                    <summary className="cursor-pointer font-bold text-blue-700">Xem {line.voucherCount} phiếu</summary>
+                                    <summary className="hnl-native-disclosure cursor-pointer font-bold text-blue-700">Xem {line.voucherCount} phiếu</summary>
                                     <div className="mt-2 space-y-1">
                                       {line.vouchers.map((voucher) => (
                                         <div key={voucher.id} className="rounded-lg border border-slate-100 bg-slate-50 p-2 break-words">

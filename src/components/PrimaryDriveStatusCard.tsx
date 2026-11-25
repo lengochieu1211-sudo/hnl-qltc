@@ -1,3 +1,4 @@
+import { ChevronDown } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Cloud, HardDrive, RefreshCw, Save, CloudUpload } from 'lucide-react';
 import { getCurrentRealFirebaseUser, onAuthUserChanged } from '../lib/firebase';
@@ -262,8 +263,7 @@ export const PrimaryDriveStatusCard: React.FC<Props> = ({ activeProjectId, userR
       <details className="group mt-3 rounded-xl border border-emerald-100 bg-white/80">
         <summary className="cursor-pointer select-none px-3 py-2.5 text-[11px] font-bold text-emerald-800 flex items-center justify-between">
           <span>Cài đặt & công cụ nâng cao</span>
-          <span className="text-[10px] text-slate-400 group-open:hidden">Mở</span>
-          <span className="text-[10px] text-slate-400 hidden group-open:inline">Thu gọn</span>
+          <ChevronDown className="hnl-disclosure-chevron h-4 w-4 text-slate-500 group-open:rotate-180" aria-hidden="true" />
         </summary>
         <div className="px-3 pb-3 border-t border-emerald-100">
 
