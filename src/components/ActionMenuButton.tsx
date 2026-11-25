@@ -251,7 +251,7 @@ export const ActionMenuButton: React.FC<ActionMenuButtonProps> = ({
         ) : (
           <span className="truncate">{label}</span>
         )}
-        <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
+        <ChevronDown data-open={open} className="hnl-disclosure-chevron h-3.5 w-3.5" aria-hidden="true" />
       </button>
       {menuContent}
     </>
