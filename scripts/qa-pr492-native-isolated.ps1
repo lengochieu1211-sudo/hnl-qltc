@@ -68,6 +68,8 @@ const http=require('node:http');http.createServer((q,r)=>{r.writeHead(200,{'Cont
 '@ | Set-Content 'android-wrapper/res/xml/qa_network_security.xml' -Encoding utf8
   Get-ChildItem 'android-wrapper/src' -Recurse -Filter '*.java' | ForEach-Object { Rewrite $_.FullName 'com.qlct.app' 'com.qlct.app.qa.pr492' }
   $java='android-wrapper/src/com/qlct/app/MainActivity.java'
+  # QA-only remote inspection, never in tracked release Java or a production APK.
+  Rewrite $java 'webView = new WebView(this);' 'WebView.setWebContentsDebuggingEnabled(true); webView = new WebView(this);'
   Rewrite $java 'return LOCAL_FALLBACK_URL;' 'return "http://127.0.0.1:4178/?app=android&env=dev";'
   Rewrite $java 'webView.loadUrl(LOCAL_FALLBACK_URL);' 'webView.loadUrl("about:blank");'
   Rewrite $java 'private boolean handleUrlOverride(String url) {' 'private boolean handleUrlOverride(String url) { if (url == null) return true; Uri qa = Uri.parse(url); if ("http".equals(qa.getScheme()) && "127.0.0.1".equals(qa.getHost()) && (qa.getPort() == 4178 || qa.getPort() == 8080 || qa.getPort() == 9099 || qa.getPort() == 9199)) return false; if ("about".equals(qa.getScheme()) || "blob".equals(qa.getScheme()) || "data".equals(qa.getScheme())) return false; if (true) return true;'

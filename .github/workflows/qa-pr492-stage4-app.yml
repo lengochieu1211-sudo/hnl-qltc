@@ -12,6 +12,9 @@ on:
       - 'scripts/qa-pr492-legacy-migration-golden.ts'
       - 'src/components/ErrorBoundary.tsx'
       - 'scripts/qa-pr492-storage-coordination.mjs'
+      - 'scripts/qa-pr492-android-runtime.mjs'
+      - 'scripts/qa-pr492-native-isolated.ps1'
+      - '.github/workflows/qa-pr492-native-isolated.yml'
 permissions:
   contents: read
 jobs:
