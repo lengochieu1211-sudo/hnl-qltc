@@ -3177,7 +3177,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   <div key={date} className="rounded-lg border border-slate-200">
                     <button type="button" aria-expanded={activeCatalogHistoryDate === date} onClick={() => setExpandedHistoryDate(current => (current === null ? catalogHistoryDates[0]?.[0] : current) === date ? '' : date)} className="flex w-full items-center justify-between gap-2 rounded-lg bg-slate-50 p-2 text-left text-xs font-bold text-slate-800">
                       <span>{formatDateDDMMYYYY(date)} · {entries.length} lần</span>
-                      <span>{formatDecimal(entries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0))} {catalogHistory.unit} {activeCatalogHistoryDate === date ? '▲' : '▼'}</span>
+                      <span>{formatDecimal(entries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0))} {catalogHistory.unit} <ChevronDown data-open={activeCatalogHistoryDate === date} className="hnl-disclosure-chevron inline-block h-4 w-4 align-middle" aria-hidden="true" /></span>
                     </button>
                     {activeCatalogHistoryDate === date && <div className="divide-y divide-slate-100">
                       {entries.map(entry => <div key={entry.id} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 p-2 text-xs">
@@ -3519,8 +3519,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               <div className={`grid grid-cols-1 gap-2 sm:grid-cols-2 ${normalizedStructureConfig.enabled ? 'xl:grid-cols-5' : 'xl:grid-cols-4'}`}>
                 {normalizedStructureConfig.enabled && (
                   <div className="relative">
-                    <button type="button" onClick={() => { setShowMaterialStructureGroupPicker((value) => !value); setShowMaterialFloorPicker(false); setShowMaterialRoomPicker(false); setShowMaterialWorkCategoryPicker(false); setShowMaterialTeamPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-indigo-200 bg-white p-2.5 text-left text-xs font-semibold">
-                      <span className="truncate">{materialNeedStructureGroupSummary}</span><ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                    <button type="button" aria-expanded={showMaterialStructureGroupPicker} onClick={() => { setShowMaterialStructureGroupPicker((value) => !value); setShowMaterialFloorPicker(false); setShowMaterialRoomPicker(false); setShowMaterialWorkCategoryPicker(false); setShowMaterialTeamPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-indigo-200 bg-white p-2.5 text-left text-xs font-semibold">
+                      <span className="truncate">{materialNeedStructureGroupSummary}</span><ChevronDown data-open={showMaterialStructureGroupPicker} className="hnl-disclosure-chevron h-4 w-4 text-slate-500" aria-hidden="true" />
                     </button>
                     {showMaterialStructureGroupPicker && (
                       <div className="absolute left-0 right-0 z-40 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
@@ -3537,8 +3537,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   </div>
                 )}
                 <div className="relative">
-                  <button type="button" onClick={() => { setShowMaterialFloorPicker((value) => !value); setShowMaterialStructureGroupPicker(false); setShowMaterialRoomPicker(false); setShowMaterialWorkCategoryPicker(false); setShowMaterialTeamPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
-                    <span className="truncate">{materialNeedFloorSummary}</span><ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                  <button type="button" aria-expanded={showMaterialFloorPicker} onClick={() => { setShowMaterialFloorPicker((value) => !value); setShowMaterialStructureGroupPicker(false); setShowMaterialRoomPicker(false); setShowMaterialWorkCategoryPicker(false); setShowMaterialTeamPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
+                    <span className="truncate">{materialNeedFloorSummary}</span><ChevronDown data-open={showMaterialFloorPicker} className="hnl-disclosure-chevron h-4 w-4 text-slate-500" aria-hidden="true" />
                   </button>
                   {showMaterialFloorPicker && (
                     <div className="absolute left-0 right-0 z-40 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
@@ -3555,8 +3555,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 </div>
 
                 <div className="relative">
-                  <button type="button" onClick={() => { setShowMaterialRoomPicker((value) => !value); setShowMaterialStructureGroupPicker(false); setShowMaterialFloorPicker(false); setShowMaterialWorkCategoryPicker(false); setShowMaterialTeamPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
-                    <span className="truncate">{materialNeedRoomSummary}</span><ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                  <button type="button" aria-expanded={showMaterialRoomPicker} onClick={() => { setShowMaterialRoomPicker((value) => !value); setShowMaterialStructureGroupPicker(false); setShowMaterialFloorPicker(false); setShowMaterialWorkCategoryPicker(false); setShowMaterialTeamPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
+                    <span className="truncate">{materialNeedRoomSummary}</span><ChevronDown data-open={showMaterialRoomPicker} className="hnl-disclosure-chevron h-4 w-4 text-slate-500" aria-hidden="true" />
                   </button>
                   {showMaterialRoomPicker && (
                     <div className="absolute left-0 right-0 z-40 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
@@ -3574,8 +3574,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 </div>
 
                 <div className="relative">
-                  <button type="button" onClick={() => { setShowMaterialWorkCategoryPicker((value) => !value); setShowMaterialStructureGroupPicker(false); setShowMaterialFloorPicker(false); setShowMaterialRoomPicker(false); setShowMaterialTeamPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
-                    <span className="truncate">{materialNeedWorkCategorySummary}</span><ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                  <button type="button" aria-expanded={showMaterialWorkCategoryPicker} onClick={() => { setShowMaterialWorkCategoryPicker((value) => !value); setShowMaterialStructureGroupPicker(false); setShowMaterialFloorPicker(false); setShowMaterialRoomPicker(false); setShowMaterialTeamPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
+                    <span className="truncate">{materialNeedWorkCategorySummary}</span><ChevronDown data-open={showMaterialWorkCategoryPicker} className="hnl-disclosure-chevron h-4 w-4 text-slate-500" aria-hidden="true" />
                   </button>
                   {showMaterialWorkCategoryPicker && (
                     <div className="absolute left-0 right-0 z-40 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
@@ -3592,8 +3592,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                 </div>
 
                 <div className="relative">
-                  <button type="button" onClick={() => { setShowMaterialTeamPicker((value) => !value); setShowMaterialStructureGroupPicker(false); setShowMaterialFloorPicker(false); setShowMaterialRoomPicker(false); setShowMaterialWorkCategoryPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
-                    <span className="truncate">{materialNeedTeamSummary}</span><ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                  <button type="button" aria-expanded={showMaterialTeamPicker} onClick={() => { setShowMaterialTeamPicker((value) => !value); setShowMaterialStructureGroupPicker(false); setShowMaterialFloorPicker(false); setShowMaterialRoomPicker(false); setShowMaterialWorkCategoryPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
+                    <span className="truncate">{materialNeedTeamSummary}</span><ChevronDown data-open={showMaterialTeamPicker} className="hnl-disclosure-chevron h-4 w-4 text-slate-500" aria-hidden="true" />
                   </button>
                   {showMaterialTeamPicker && (
                     <div className="absolute left-0 right-0 z-40 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">

@@ -117,7 +117,8 @@ export const SettingsAccordionCard: React.FC<SettingsAccordionCardProps> = ({
               </span>
             )}
             <ChevronDown
-              className={`h-4 w-4 shrink-0 text-slate-400 transition-transform duration-200 ease-out ${open ? 'rotate-180' : ''}`}
+              data-open={open}
+              className="hnl-disclosure-chevron h-4 w-4 text-slate-500"
               aria-hidden="true"
             />
           </div>

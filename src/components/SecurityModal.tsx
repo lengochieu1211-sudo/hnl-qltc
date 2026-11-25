@@ -2482,7 +2482,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
                         )}
 
                         <details className="rounded-lg border border-slate-200 bg-white px-2 py-1.5">
-                          <summary className="cursor-pointer text-[9px] font-bold text-slate-500">
+                          <summary className="hnl-native-disclosure cursor-pointer text-[9px] font-bold text-slate-500">
                             Chi tiết kỹ thuật
                           </summary>
                           <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[8.5px] text-slate-500">

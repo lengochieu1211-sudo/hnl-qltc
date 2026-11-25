@@ -234,7 +234,7 @@ export const AppAuthGate: React.FC<AppAuthGateProps> = ({ children }) => {
 
             {isIosHomeScreenApp && (
               <details className={`mt-3 rounded-2xl border px-3.5 py-3 text-[11px] leading-relaxed ${dark ? 'border-slate-700 bg-slate-800/70 text-slate-300' : 'border-blue-100 bg-blue-50/60 text-slate-600'}`}>
-                <summary className="cursor-pointer font-bold">iPhone: đăng nhập Google không hiện bàn phím?</summary>
+                <summary className="hnl-native-disclosure cursor-pointer font-bold">iPhone: đăng nhập Google không hiện bàn phím?</summary>
                 <p className="mt-2">Hãy chạm trực tiếp vào ô email hoặc mật khẩu trên trang Google; nút Đăng nhập không tự mở bàn phím.</p>
                 <p className="mt-1.5">Nếu đã chạm ô nhập nhưng bàn phím vẫn không hiện: đóng hẳn ứng dụng ghim rồi mở lại; nếu cần, khởi động lại iPhone. Thử mở cùng địa chỉ bằng Safari để phân biệt lỗi iOS Web App.</p>
                 <p className="mt-1.5 font-semibold">Không xóa dữ liệu trình duyệt hay gỡ biểu tượng ghim trước khi chắc chắn dữ liệu/ảnh ngoại tuyến đã đồng bộ. Đăng nhập Safari có thể không tự đăng nhập lại ứng dụng ghim.</p>

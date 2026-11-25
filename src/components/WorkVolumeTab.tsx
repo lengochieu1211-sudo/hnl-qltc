@@ -1535,7 +1535,7 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                       <span className="truncate">
                         {selectedFloors.length > 0 ? selectedFloors.map((id) => floorOptions.find((floor) => floor.id === id)?.label || id).join(', ') : 'Toàn công trình'}
                       </span>
-                      <ChevronDown className="w-5 h-5 text-slate-400 flex-shrink-0" />
+                      <ChevronDown data-open={isFloorDropdownOpen} className="hnl-disclosure-chevron h-4 w-4 text-slate-500" aria-hidden="true" />
                     </div>
                     {isFloorDropdownOpen && (
                       <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-50 max-h-48 overflow-y-auto">
@@ -1781,8 +1781,8 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
               <div className={`grid grid-cols-1 gap-2 sm:grid-cols-2 ${normalizedStructureConfig.enabled ? 'xl:grid-cols-4' : 'xl:grid-cols-3'}`}>
                 {normalizedStructureConfig.enabled && (
                   <div className="relative">
-                    <button type="button" onClick={() => { setShowDetailStructureGroupPicker((value) => !value); setShowDetailFloorPicker(false); setShowDetailRoomPicker(false); setShowDetailTeamPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-indigo-200 bg-white p-2.5 text-left text-xs font-semibold">
-                      <span className="truncate">{detailStructureSummary}</span><ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                    <button type="button" aria-expanded={showDetailStructureGroupPicker} onClick={() => { setShowDetailStructureGroupPicker((value) => !value); setShowDetailFloorPicker(false); setShowDetailRoomPicker(false); setShowDetailTeamPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-indigo-200 bg-white p-2.5 text-left text-xs font-semibold">
+                      <span className="truncate">{detailStructureSummary}</span><ChevronDown data-open={showDetailStructureGroupPicker} className="hnl-disclosure-chevron h-4 w-4 text-slate-500" aria-hidden="true" />
                     </button>
                     {showDetailStructureGroupPicker && (
                       <div className="absolute left-0 right-0 z-30 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
@@ -1799,8 +1799,8 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                   </div>
                 )}
                 <div className="relative">
-                  <button type="button" onClick={() => { setShowDetailFloorPicker((value) => !value); setShowDetailStructureGroupPicker(false); setShowDetailRoomPicker(false); setShowDetailTeamPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
-                    <span className="truncate">{detailFloorSummary}</span><ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                  <button type="button" aria-expanded={showDetailFloorPicker} onClick={() => { setShowDetailFloorPicker((value) => !value); setShowDetailStructureGroupPicker(false); setShowDetailRoomPicker(false); setShowDetailTeamPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
+                    <span className="truncate">{detailFloorSummary}</span><ChevronDown data-open={showDetailFloorPicker} className="hnl-disclosure-chevron h-4 w-4 text-slate-500" aria-hidden="true" />
                   </button>
                   {showDetailFloorPicker && (
                     <div className="absolute left-0 right-0 z-30 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
@@ -1810,8 +1810,8 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                   )}
                 </div>
                 <div className="relative">
-                  <button type="button" onClick={() => { setShowDetailRoomPicker((value) => !value); setShowDetailStructureGroupPicker(false); setShowDetailFloorPicker(false); setShowDetailTeamPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
-                    <span className="truncate">{detailRoomSummary}</span><ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                  <button type="button" aria-expanded={showDetailRoomPicker} onClick={() => { setShowDetailRoomPicker((value) => !value); setShowDetailStructureGroupPicker(false); setShowDetailFloorPicker(false); setShowDetailTeamPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
+                    <span className="truncate">{detailRoomSummary}</span><ChevronDown data-open={showDetailRoomPicker} className="hnl-disclosure-chevron h-4 w-4 text-slate-500" aria-hidden="true" />
                   </button>
                   {showDetailRoomPicker && (
                     <div className="absolute left-0 right-0 z-30 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
@@ -1821,8 +1821,8 @@ export const WorkVolumeTab: React.FC<WorkVolumeTabProps> = ({
                   )}
                 </div>
                 <div className="relative">
-                  <button type="button" onClick={() => { setShowDetailTeamPicker((value) => !value); setShowDetailStructureGroupPicker(false); setShowDetailFloorPicker(false); setShowDetailRoomPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
-                    <span className="truncate">{detailTeamSummary}</span><ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                  <button type="button" aria-expanded={showDetailTeamPicker} onClick={() => { setShowDetailTeamPicker((value) => !value); setShowDetailStructureGroupPicker(false); setShowDetailFloorPicker(false); setShowDetailRoomPicker(false); }} className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 text-left text-xs font-semibold">
+                    <span className="truncate">{detailTeamSummary}</span><ChevronDown data-open={showDetailTeamPicker} className="hnl-disclosure-chevron h-4 w-4 text-slate-500" aria-hidden="true" />
                   </button>
                   {showDetailTeamPicker && (
                     <div className="absolute left-0 right-0 z-30 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">

@@ -71,7 +71,7 @@ export const DesktopAccountMenu: React.FC<DesktopAccountMenuProps> = ({
           <span className="sr-only">{auth.authenticated ? 'Đã đăng nhập' : 'Chưa đăng nhập'}</span>
         </span>
         <span className="flex max-w-full items-center gap-0.5 text-[9px] font-bold leading-3 text-slate-600">
-          <span className="truncate">Tài khoản</span><ChevronDown className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+          <span className="truncate">Tài khoản</span><ChevronDown data-open={open} className="hnl-disclosure-chevron h-3 w-3" aria-hidden="true" />
         </span>
       </button>
 
