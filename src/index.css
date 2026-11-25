@@ -745,7 +745,7 @@ html select:not([multiple]):is(:not([size]),[size="1"]) {
 html select:not([multiple]):not(:disabled) { cursor: pointer; }
 .hnl-disclosure-chevron {
   flex-shrink: 0;
-  transition: transform 160ms ease-out;
+  transition: transform 160ms ease-out, rotate 160ms ease-out;
   transform-origin: center;
 }
 .hnl-disclosure-chevron[data-open="true"] { transform: rotate(180deg); }
@@ -758,4 +758,29 @@ html select:not([multiple]):not(:disabled) { cursor: pointer; }
     -webkit-appearance: auto;
     background-image: none !important;
   }
+}
+
+/* Only native summaries without an existing custom action/arrow receive a marker. */
+summary.hnl-native-disclosure { display: block; list-style: none; }
+summary.hnl-native-disclosure::-webkit-details-marker { display: none; }
+summary.hnl-native-disclosure::marker { content: ''; }
+summary.hnl-native-disclosure::after {
+  content: '';
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-inline-start: 5px;
+  vertical-align: middle;
+  background: var(--hnl-select-chevron) center / contain no-repeat;
+  transition: transform 160ms ease-out;
+}
+details[open] > summary.hnl-native-disclosure::after { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) {
+  summary.hnl-native-disclosure::after { transition: none; }
+}
+@media (forced-colors: active) {
+  summary.hnl-native-disclosure { display: list-item; list-style: revert; }
+  summary.hnl-native-disclosure::marker { content: normal; }
+  summary.hnl-native-disclosure::after { display: none; }
+  summary.hnl-native-disclosure::-webkit-details-marker { display: initial; }
 }
