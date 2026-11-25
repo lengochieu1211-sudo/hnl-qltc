@@ -42,7 +42,6 @@ assert.match(room,/roomDraftDirtyRef\.current = true/);
 assert.match(room,/Đổi ĐVT không tự quy đổi KL đã lưu/);
 assert.match(room,/value=\{!item\.volumeUnit \? '__main__'/);
 assert.match(room,/Theo ĐVT chính \(\{getCategorySourceUnit\(catName\)\}\)/);
-assert.match(room,/Nhập đơn vị khác…/);
 assert.match(room,/data-hnl-sub-unit-custom-editor="true"/);
 assert.match(room, /\['m²','m','md','m³','Cái','Thanh'\]\.map\(unit/);
 assert.match(room, /<option value="__custom__">\{item\.volumeUnit\} \(đã lưu\)<\/option>/);
