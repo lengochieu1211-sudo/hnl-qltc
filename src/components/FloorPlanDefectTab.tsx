@@ -52,7 +52,6 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
-  ChevronUp,
   ChevronsDown,
   ChevronsUp,
   Palette,
@@ -6728,7 +6727,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <span className={`hidden sm:inline-flex px-2 py-1 rounded-lg border text-[9px] font-bold ${getFloorTargetState(activeFloor.targetBoardDate).className}`}>
                 Tấm · {getFloorTargetState(activeFloor.targetBoardDate).label}
               </span>
-              {showFloorProgressPanel ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
+              <ChevronDown data-open={showFloorProgressPanel} className="hnl-disclosure-chevron w-4 h-4 text-slate-500" aria-hidden="true" />
             </div>
           </button>
 
@@ -7287,8 +7286,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
             <details data-hnl-map-tools-collapsible="true" open={isShapeDrawing ? true : undefined} className="group/map-tools bg-slate-50/90 rounded-xl border border-slate-200/80">
               <summary onClick={(event) => { if (isShapeDrawing) event.preventDefault(); }} className="cursor-pointer select-none px-3 py-2 text-[11px] font-bold text-slate-700 flex items-center justify-between">
                 <span>{canManageStructure && (viewMode === 'highlight' || viewMode === 'all') ? (isShapeDrawing ? 'Đo vẽ khối lượng' : 'Công cụ vẽ vùng Căn / Phòng') : 'Công cụ hiển thị mặt bằng'}</span>
-                <span className="text-slate-400 group-open/map-tools:hidden">Mở</span>
-                <span className="text-slate-400 hidden group-open/map-tools:inline">Thu gọn</span>
+                <ChevronDown className="hnl-disclosure-chevron h-4 w-4 text-slate-500 group-open/map-tools:rotate-180" aria-hidden="true" />
               </summary>
               <div className="p-2 border-t border-slate-200/80 flex flex-wrap items-center justify-start gap-2">
               {/* Group 1: 3 Drawing Tools */}
@@ -9910,7 +9908,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           title={roomExpanded ? 'Thu gọn Căn / Phòng' : 'Mở rộng Căn / Phòng'}
                           aria-label={roomExpanded ? 'Thu gọn Căn / Phòng' : 'Mở rộng Căn / Phòng'}
                         >
-                          {roomExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                          <ChevronDown data-open={roomExpanded} className="hnl-disclosure-chevron w-4 h-4" aria-hidden="true" />
                         </button>
                       </div>
 
@@ -9998,9 +9996,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                                   className="min-w-0 font-extrabold text-slate-800 flex items-center gap-1 text-left hover:text-indigo-700 transition"
                                   title={collapsedRoomCategoryKeys.has(`${room.id}::${catName}`) ? 'Mở hạng mục chính' : 'Thu gọn hạng mục chính'}
                                 >
-                                  {collapsedRoomCategoryKeys.has(`${room.id}::${catName}`)
-                                    ? <ChevronDown className="w-3.5 h-3.5 shrink-0" />
-                                    : <ChevronUp className="w-3.5 h-3.5 shrink-0" />}
+                                  <ChevronDown data-open={!collapsedRoomCategoryKeys.has(`${room.id}::${catName}`)} className="hnl-disclosure-chevron w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                                   <span className="truncate">{catName}</span>
                                   <span className="text-[9px] font-bold text-slate-400 shrink-0">({subs.length})</span>
                                 </button>
@@ -12493,9 +12489,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                             className="min-w-0 flex items-center gap-1 truncate text-left text-xs font-extrabold text-indigo-900 hover:text-indigo-700"
                             title={isCurrentGroupCollapsed ? 'Mở các tầng trong Khu/Khối' : 'Thu gọn các tầng trong Khu/Khối'}
                           >
-                            {isCurrentGroupCollapsed
-                              ? <ChevronDown className="h-3.5 w-3.5 shrink-0" />
-                              : <ChevronUp className="h-3.5 w-3.5 shrink-0" />}
+                            <ChevronDown data-open={!isCurrentGroupCollapsed} className="hnl-disclosure-chevron h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                             <span className="truncate">{getStructureGroupName(currentGroupId, normalizedStructureConfig)}</span>
                           </button>
                         </div>
