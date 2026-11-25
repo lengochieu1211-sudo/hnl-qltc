@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
-import type { FloorPlan, RoomProgressItem } from '../src/types';
+import type { FloorPlan, RoomProgressItem, WorkVolume } from '../src/types';
 import { createFloorMetricCalibration } from '../src/utils/highlightMetricGeometry.ts';
 import { measureBasicRoomQuantitySource } from '../src/utils/roomHighlightBasicMetric.ts';
 import { evaluateRoomQuantityFormula } from '../src/utils/roomQuantityFormula.ts';
+import { recalculateLinkedRoomQuantities } from '../src/utils/roomQuantityAutoUpdate';
+import fs from 'node:fs';
 
 const vars = { S: 20, P: 18, L: 12, KL: 100 };
 const cases: [string, number][] = [
@@ -36,7 +38,7 @@ const room: RoomProgressItem = {
   id:'room',floorId:floor.id,roomName:'Test',x:10,y:10,width:40,height:40,
   frameStatus:'Chưa làm',boardStatus:'Chưa làm',inspectionStatus:'Chưa nghiệm thu',updatedAt:1
 };
-const measure = (source: 'area'|'perimeter'|'length', candidate = room, sourceFloor = floor) =>
+const measure = (source: 'area'|'perimeter'|'length'|'linear', candidate = room, sourceFloor = floor) =>
   measureBasicRoomQuantitySource({source,room:candidate,floor:sourceFloor,image});
 const expectedMetric = (result: ReturnType<typeof measure>, expected:number) => {
   assert.equal(result.valid,true);
@@ -55,4 +57,58 @@ assert.equal(measure('length',{...line,points:[{x:0,y:0},{x:10,y:10},{x:0,y:0}]}
 assert.equal(measure('length',{...line,points:[{x:0,y:0},{x:120,y:10}]}).valid,false);
 assert.equal(measure('length',line,{...floor,imageRevision:2}).valid,false);
 assert.equal(measure('length',line,{...floor,highlightMetricCalibration:undefined}).valid,false);
-console.log('Explicit basic quantity measurement: PASS (12 cases)');
+expectedMetric(measure('linear'),12);
+expectedMetric(measure('linear',line),6);
+assert.equal(measure('linear',{...line,positionLocked:true}).valid,false);
+assert.equal(measure('linear',line,{...floor,imageRevision:2}).valid,false);
+console.log('Explicit basic quantity measurement: PASS (16 cases)');
+
+const catalog = [{id:'work1',workCategoryId:'cat1',title:'Trần',floorId:floor.id,unit:'m²'}] as WorkVolume[];
+const linked:RoomProgressItem={...room,workCategory:'Trần',workCategoryId:'cat1',workVolume:8,volumeUnit:'m²',categoryVolumes:{'Trần':8},categoryVolumeUnits:{'Trần':'m²'},
+ subItems:[
+  {id:'sub1',name:'Tấm',category:'Trần',status:'Chưa làm',workVolume:16},
+  {id:'sub2',name:'Khung',category:'Trần',status:'Đã hoàn thành',workVolume:8},
+  {id:'sub3',name:'Nhập tay',category:'Trần',status:'Chưa làm',workVolume:7},
+ ],
+ quantityFormulaSettings:{
+  'main:id:cat1':{expression:'S',auto:true,categoryKey:'id:cat1',unit:'m²',value:8},
+  'sub:sub1':{expression:'KL*2',auto:true,categoryKey:'id:cat1',unit:'m²',value:16},
+  'sub:sub2':{expression:'KL',auto:true,categoryKey:'id:cat1',unit:'m²',value:8},
+  'sub:sub3':{expression:'S',auto:false,categoryKey:'id:cat1',unit:'m²',value:7},
+ }};
+const resized={...linked,width:60};
+const recalculated=recalculateLinkedRoomQuantities(resized,floor,catalog);
+assert.equal(recalculated.categoryVolumes?.['Trần'],12);
+assert.equal(recalculated.workVolume,12);
+assert.equal(recalculated.subItems?.[0].workVolume,24);
+assert.equal(recalculated.subItems?.[1].workVolume,8);
+assert.equal(recalculated.subItems?.[2].workVolume,7);
+assert.equal(recalculated.quantityFormulaSettings?.['main:id:cat1'].value,12);
+assert.equal(recalculated.quantityFormulaSettings?.['sub:sub1'].value,24);
+assert.equal(linked.workVolume,8);
+assert.equal(linked.subItems?.[0].workVolume,16);
+assert.equal(recalculateLinkedRoomQuantities(recalculated,floor,catalog),recalculated);
+const locked={...resized,positionLocked:true};
+assert.equal(recalculateLinkedRoomQuantities(locked,floor,catalog),locked);
+const accepted={...resized,inspectionStatus:'Đạt nghiệm thu' as const};
+assert.equal(recalculateLinkedRoomQuantities(accepted,floor,catalog),accepted);
+assert.equal(recalculateLinkedRoomQuantities(resized,{...floor,imageRevision:5},catalog),resized);
+const manualOverride={...resized,categoryVolumes:{'Trần':99},workVolume:99};
+assert.equal(recalculateLinkedRoomQuantities(manualOverride,floor,catalog),manualOverride);
+const duplicate={...resized,categoryVolumes:{'Trần':8,cat1:8}};
+assert.equal(recalculateLinkedRoomQuantities(duplicate,floor,catalog),duplicate);
+assert.equal(recalculateLinkedRoomQuantities(resized,floor,[...catalog,{...catalog[0],id:'work2',workCategoryId:'cat2'}]),resized);
+const newCalibration=createFloorMetricCalibration(floor,image,{x:0,y:0},{x:10,y:0},2);
+assert.ok(newCalibration);
+const recalibrated=recalculateLinkedRoomQuantities(linked,{...floor,highlightMetricCalibration:newCalibration},catalog);
+assert.equal(recalibrated.workVolume,32);
+assert.equal(recalibrated.subItems?.[0].workVolume,64);
+const ui=fs.readFileSync('src/components/RoomQuantityCalculator.tsx','utf8');
+const modal=fs.readFileSync('src/components/RoomHighlightModal.tsx','utf8');
+assert.match(ui,/ExpressionDisplayInput/);
+assert.doesNotMatch(ui,/<select/);
+assert.match(ui,/resolvedValue=/);
+assert.match(modal,/quantityFormulaSettings/);
+assert.match(modal,/data-hnl-sub-quantity-group/);
+assert.match(modal,/data-hnl-sub-team-group/);
+console.log('Room linked quantity auto-update and UI source Golden PASS');

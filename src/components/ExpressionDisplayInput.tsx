@@ -10,11 +10,14 @@ import { evaluateMathExpression, formatAdaptiveDecimal } from '../utils/numberUt
 type Props = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type' | 'value'> & {
   value: string;
   formatResult?: (value: number) => string;
+  /** Optional domain-specific result. Undefined keeps the legacy numeric evaluator. */
+  resolvedValue?: number | null;
 };
 
 export const ExpressionDisplayInput: React.FC<Props> = ({
   value,
   formatResult = formatAdaptiveDecimal,
+  resolvedValue,
   onFocus,
   onBlur,
   inputMode = 'decimal',
@@ -22,7 +25,7 @@ export const ExpressionDisplayInput: React.FC<Props> = ({
 }) => {
   const [focused, setFocused] = useState(false);
   const raw = value ?? '';
-  const calculated = raw.trim() ? evaluateMathExpression(raw) : null;
+  const calculated = resolvedValue !== undefined ? resolvedValue : (raw.trim() ? evaluateMathExpression(raw) : null);
   const displayed = !focused && calculated !== null && Number.isFinite(calculated)
     ? formatResult(calculated)
     : raw;

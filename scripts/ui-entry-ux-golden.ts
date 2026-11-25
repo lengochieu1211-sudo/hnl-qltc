@@ -319,10 +319,14 @@ assert(
   'PC/laptop room inspection must use two aligned columns with progress, acceptance, and deadline stacked on the right'
 );
 assert(
-  roomHighlightUiForPc.includes('Team stays directly below the sub-item name on PC/laptop/EXE') &&
+  roomHighlightUiForPc.includes('data-hnl-sub-quantity-group="true"') &&
+    roomHighlightUiForPc.includes('data-hnl-sub-team-group="true"') &&
+    roomHighlightUiForPc.indexOf('data-hnl-sub-quantity-group="true"') < roomHighlightUiForPc.indexOf('data-hnl-sub-team-group="true"') &&
+    roomHighlightUiForPc.indexOf('data-hnl-sub-unit-spacing="true"') < roomHighlightUiForPc.indexOf('data-hnl-sub-team-group="true"') &&
+    roomHighlightUiForPc.indexOf('data-hnl-sub-team-group="true"') < roomHighlightUiForPc.indexOf('data-hnl-room-team-contact-row="true"') &&
     roomHighlightUiForPc.includes('Hạng mục con &amp; đội thi công') &&
     roomHighlightUiForPc.includes('data-hnl-room-team-contact-row="true"'),
-  'Room inspection must keep the team selector below the sub-item title and share a compact row with contact on PC'
+  'Room inspection must separate quantity and unit from the team selector, and keep a compact team/contact row on PC'
 );
 assert(
   roomHighlightUiForPc.includes('order-2 flex justify-end xl:shrink-0') &&

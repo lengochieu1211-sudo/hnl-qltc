@@ -318,7 +318,17 @@ export interface RoomSubItem {
   progressWeight?: number; // Trọng số tiến độ (VD: 25 cho 25%, 1 cho trọng số bình thường)
 }
 
+/** Opt-in room quantity formula metadata; numeric workVolume remains authoritative. */
+export interface RoomQuantityFormulaSetting {
+  expression: string;
+  auto: boolean;
+  categoryKey: string;
+  unit: string;
+  value: number;
+}
 export interface RoomProgressItem {
+  /** Optional settings keyed by main category identity or sub-item ID. Legacy rooms omit this. */
+  quantityFormulaSettings?: Record<string, RoomQuantityFormulaSetting>;
   /** Optional area of each main category; missing means the whole room. */
   categoryHighlightRegions?: Record<string, HighlightRegionRect>;
   /** Per-category independent TOTAL quantity and highlighted TOTAL zone. */
