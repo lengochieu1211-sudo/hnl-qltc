@@ -751,7 +751,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     const fail = (reason: string) => ({ valid: false as const, reason });
     if (quantityLocked || stage?.status === 'Đã hoàn thành' || stage?.inspectionStatus === 'Đạt nghiệm thu') return fail('Khối lượng đã khóa hoặc đã chốt.');
     const unit = normalizeUnit(stage?.volumeUnit || getCategorySourceUnit(cat));
-    if (source === 'area' && !areSameUnit(unit,'m²') || (source === 'perimeter' || source === 'length') && !areSameUnit(unit,'m'))
+    if (['area','perimeter','length'].includes(source) && !stage?.volumeUnit && !getBasicMeasureUnit(cat)) return fail('Chưa xác định ĐVT đo của hạng mục.');
+    if ((source === 'area' && !areSameUnit(unit,'m²')) || ((source === 'perimeter' || source === 'length') && !areSameUnit(unit,'m')))
       return fail('Nguồn đo và ĐVT kết quả không khớp. Dùng công thức nếu cần hệ số chuyển đổi.');
     const variables: QuantityVariables = {};
     const names = expression.toUpperCase().match(/[A-Z]+/g) || [];
@@ -772,7 +773,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     }
     const calculated = evaluateRoomQuantityFormula(expression,variables);
     if (calculated.valid === false) return calculated;
-    const value = Math.round(calculated.value * 10000) / 10000;
+    const value = Math.round(calculated.value * 100) / 100;
     if (!Number.isFinite(value)) return fail('Kết quả vượt giới hạn.');
     return {valid:true as const,value,unit};
   };
@@ -787,7 +788,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     } else {
       delete basicMeasuredRef.current[cat];
       setCategoryVolumes(prev=>({...prev,[key]:result.value}));
-      setVolumeStrings(prev=>({...prev,[cat]:String(result.value),[key]:String(result.value)}));
+      setVolumeStrings(prev=>({...prev,[cat]:formatDecimal(result.value),[key]:formatDecimal(result.value)}));
       if (workCategory.trim().toLocaleLowerCase('vi-VN') === cat.trim().toLocaleLowerCase('vi-VN')) setWorkVolume(result.value);
     }
     return null;
