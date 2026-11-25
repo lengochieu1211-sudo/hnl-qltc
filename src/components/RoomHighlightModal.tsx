@@ -38,7 +38,9 @@ import { toLocalDateInputValue } from '../utils/dateFormatter';
 import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
 import { totalCountPoints } from '../utils/highlightCountPoints';
 import { getRoomWorkCategoryUnit } from '../utils/roomCategoryUnit';
-import { ADVANCED_HIGHLIGHT_ENABLED, getBasicRoomMetricUnit } from '../utils/roomHighlightBasicMetric';
+import { ADVANCED_HIGHLIGHT_ENABLED, getBasicRoomMetricUnit, type BasicRoomQuantitySource } from '../utils/roomHighlightBasicMetric';
+import { evaluateRoomQuantityFormula, type QuantityVariables } from '../utils/roomQuantityFormula';
+import { RoomQuantityCalculator } from './RoomQuantityCalculator';
 import type { MetricMeasure } from '../utils/highlightMetricGeometry';
 import { buildMaterialAliasMap, getMaterialIdentityKey, resolveNormMaterialId, normalizeMaterialNameKey } from '../utils/inventoryUtils';
 import { computeMaterialNeeds } from '../utils/materialNeedEngine';
@@ -73,7 +75,7 @@ interface RoomHighlightModalProps {
   onStartCountOnMap?: (room: RoomProgressItem, stageId: string) => void;
   /** Open the existing full floor map for Cách 2 measurement; never writes quantity here. */
   onStartDrawOnMap?: (room: RoomProgressItem, category: string, target: string) => void;
-  onMeasureBasicRoom?: (room: RoomProgressItem, unit: string) => MetricMeasure;
+  onMeasureBasicRoom?: (room: RoomProgressItem, unit: string, source?: BasicRoomQuantitySource) => MetricMeasure;
   structureReadOnly?: boolean;
   focusOrphanRepair?: boolean;
 }
@@ -156,7 +158,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
   const roomDraftDirtyRef = React.useRef(false);
   const countStageAfterSaveRef = React.useRef<string | null>(null);
   const basicMeasuredRef = React.useRef<Record<string, { unit: 'm²' | 'm'; value: number; key: string }>>({});
-  useEffect(() => { roomDraftDirtyRef.current = false; basicMeasuredRef.current = {}; }, [isOpen, roomItem?.id, floorId]);
+  const formulaMeasuredRef = React.useRef<Record<string, { cat: string; stageId?: string; expression: string; source: string; unit: string; value: number; key: string }>>({});
+  useEffect(() => { roomDraftDirtyRef.current = false; basicMeasuredRef.current = {}; formulaMeasuredRef.current = {}; }, [isOpen, roomItem?.id, floorId]);
   const closeRoomWithDraftGuard = (label: string) => {
     if (roomDraftDirtyRef.current && !window.confirm(`${label}? Các thay đổi chưa nhấn Lưu sẽ không được lưu. Tiếp tục?`)) return;
     roomDraftDirtyRef.current = false;
@@ -743,6 +746,52 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     if (catalogUnit && savedUnit && !areSameUnit(catalogUnit, savedUnit)) return null;
     return getBasicRoomMetricUnit(catalogUnit || savedUnit || '');
   };
+  const quantityLocked = structureReadOnly || roomItem?.positionLocked === true || roomItem?.inspectionStatus === 'Đạt nghiệm thu';
+  const computeDraftFormula = (cat: string, expression: string, source: string, stage?: RoomSubItem) => {
+    const fail = (reason: string) => ({ valid: false as const, reason });
+    if (quantityLocked || stage?.status === 'Đã hoàn thành' || stage?.inspectionStatus === 'Đạt nghiệm thu') return fail('Khối lượng đã khóa hoặc đã chốt.');
+    const unit = normalizeUnit(stage?.volumeUnit || getCategorySourceUnit(cat));
+    if (source === 'area' && !areSameUnit(unit,'m²') || (source === 'perimeter' || source === 'length') && !areSameUnit(unit,'m'))
+      return fail('Nguồn đo và ĐVT kết quả không khớp. Dùng công thức nếu cần hệ số chuyển đổi.');
+    const variables: QuantityVariables = {};
+    const names = expression.toUpperCase().match(/[A-Z]+/g) || [];
+    for (const [name, metric] of [['S','area'],['P','perimeter'],['L','length']] as const) {
+      if (!names.includes(name)) continue;
+      if (!roomItem?.id || !onMeasureBasicRoom) return fail('Cần lưu phòng và hiệu chuẩn mặt bằng trước.');
+      const measured = onMeasureBasicRoom(roomItem, metric === 'area' ? 'm²' : 'm', metric);
+      if (measured.valid === false) return fail(measured.reason);
+      variables[name] = measured.value;
+    }
+    if (names.includes('KL')) {
+      if (!stage) return fail('KL chỉ dùng cho hạng mục con.');
+      if (source === 'parent' && !areSameUnit(unit,getCategorySourceUnit(cat))) return fail('ĐVT con khác ĐVT chính; hãy dùng công thức phù hợp.');
+      const key = getCategoryInputKey(cat);
+      const raw = categoryVolumes[key] ?? (workCategory.trim().toLocaleLowerCase('vi-VN') === cat.trim().toLocaleLowerCase('vi-VN') && workVolume !== '' ? Number(workVolume) : undefined);
+      if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0) return fail('Chưa có KL chính hợp lệ.');
+      variables.KL = raw;
+    }
+    const calculated = evaluateRoomQuantityFormula(expression,variables);
+    if (calculated.valid === false) return calculated;
+    const value = Math.round(calculated.value * 10000) / 10000;
+    if (!Number.isFinite(value)) return fail('Kết quả vượt giới hạn.');
+    return {valid:true as const,value,unit};
+  };
+  const calculateDraftFormula = (cat: string, expression: string, source: string, stage?: RoomSubItem): string | null => {
+    const result = computeDraftFormula(cat,expression,source,stage);
+    if (result.valid === false) return result.reason;
+    const key = getCategoryInputKey(cat);
+    roomDraftDirtyRef.current = true;
+    formulaMeasuredRef.current[stage ? 'sub:'+stage.id : 'main:'+cat] = {cat,...(stage ? {stageId:stage.id} : {}),expression,source,unit:result.unit,value:result.value,key};
+    if (stage) {
+      handleUpdateSubItem(stage.id,{workVolume:result.value,highlightVolumeMode:'manual',highlightCountMode:'manual'});
+    } else {
+      delete basicMeasuredRef.current[cat];
+      setCategoryVolumes(prev=>({...prev,[key]:result.value}));
+      setVolumeStrings(prev=>({...prev,[cat]:String(result.value),[key]:String(result.value)}));
+      if (workCategory.trim().toLocaleLowerCase('vi-VN') === cat.trim().toLocaleLowerCase('vi-VN')) setWorkVolume(result.value);
+    }
+    return null;
+  };
   const calculateBasicRoomQuantity = (cat: string) => {
     if (ADVANCED_HIGHLIGHT_ENABLED || !roomItem?.id || !onMeasureBasicRoom || structureReadOnly ||
         roomItem.positionLocked || roomItem.inspectionStatus === 'Đạt nghiệm thu') return;
@@ -757,6 +806,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     roomDraftDirtyRef.current = true;
     const key = getCategoryInputKey(cat);
     // Keep the original category key (ID or title), not a duplicate quantity.
+    delete formulaMeasuredRef.current['main:'+cat];
     basicMeasuredRef.current[cat] = { unit, value, key };
     setCategoryVolumes(prev => ({ ...prev, [key]: value }));
     setVolumeStrings(prev => ({ ...prev, [cat]: formatDecimal(value), [key]: formatDecimal(value) }));
@@ -1273,6 +1323,20 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
           window.alert('Khối lượng đo của “' + cat + '” không còn khớp mặt bằng, phòng hoặc ĐVT hiện tại. Hãy tính lại hoặc nhập tay trước khi lưu.');
           return;
         }
+      }
+    }
+    for (const [refKey, measured] of Object.entries(formulaMeasuredRef.current)) {
+      const stage = measured.stageId ? subItems.find(s=>s.id===measured.stageId) : undefined;
+      if (!activeCategories.includes(measured.cat) || (measured.stageId && (!stage || (stage.category || workCategory) !== measured.cat))) {
+        // A deleted stage/category does not carry a calculation into the remaining items.
+        delete formulaMeasuredRef.current[refKey];
+        continue;
+      }
+      const current = computeDraftFormula(measured.cat,measured.expression,measured.source,stage);
+      const actual = stage ? stage.workVolume : categoryVolumes[measured.key];
+      if (current.valid === false || current.unit !== measured.unit || current.value !== measured.value || actual !== measured.value || getCategoryInputKey(measured.cat) !== measured.key) {
+        window.alert('Nguồn tính hoặc KL đã thay đổi. Hãy tính lại hoặc nhập tay trước khi lưu: '+(stage?.name || measured.cat));
+        return;
       }
     }
     const invalidVolumeFormula = Object.entries(volumeStrings).find(([, raw]) => {
@@ -1900,6 +1964,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                             onChange={(e) => {
                               const typedVal = e.target.value;
                               delete basicMeasuredRef.current[catName];
+                              delete formulaMeasuredRef.current['main:'+catName];
                               const key = getCategoryInputKey(catName);
                               setVolumeStrings(prev => ({ ...prev, [catName]: typedVal, [key]: typedVal }));
                               const parsed = evaluateMathExpression(typedVal);
@@ -1910,7 +1975,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                               }
                             }}
                             onBlur={() => {
-                              if (basicMeasuredRef.current[catName]) return;
+                              if (basicMeasuredRef.current[catName] || formulaMeasuredRef.current['main:'+catName]) return;
                               const key = getCategoryInputKey(catName);
                               const typedVal = volumeStrings[catName] ?? volumeStrings[key] ?? '';
                               const parsed = evaluateMathExpression(typedVal);
@@ -1945,6 +2010,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                             title={`Đo vẽ khối lượng của hạng mục chính: ${catName}`}
                             className="shrink-0 border-l border-emerald-200 pl-1.5 text-[10px] font-extrabold text-indigo-700 hover:text-indigo-900 disabled:opacity-40">📐 Mặt bằng</button>}
 
+                          {!ADVANCED_HIGHLIGHT_ENABLED && !structureReadOnly && <RoomQuantityCalculator key={'main:'+catName} label={'hạng mục chính '+catName} disabled={quantityLocked} onCalculate={(expression,source)=>calculateDraftFormula(catName,expression,source)}/>}
                           {!structureReadOnly && activeCategories.length > 1 && (
                             <MoveOrderControls
                               onMoveUp={() => handleMoveCategory(catName, 'up')}
@@ -2160,13 +2226,10 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                             ))}
                             </div>
 
-                            {/* Team stays directly below the sub-item name on PC/laptop/EXE so long team names remain visible. */}
-                            <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 text-[10.5px]">
+                            {/* Quantity and team are separate business sections. */}
+                            <div data-hnl-sub-quantity-group="true" className="bg-emerald-50/40 p-2 rounded-xl border border-emerald-100 text-[10.5px]">
                               <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 mb-1.5">
-                                <div className="flex items-center gap-1.5">
-                                  <User className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                                  <span className="font-bold text-slate-600">Đội thi công:</span>
-                                </div>
+                                <span className="font-bold text-slate-600">Khối lượng hạng mục con:</span>
                                 {(() => {
                                   const finalized = item.status === 'Đã hoàn thành' || item.inspectionStatus === 'Đạt nghiệm thu';
                                   const auto = ADVANCED_HIGHLIGHT_ENABLED && item.highlightVolumeMode === 'area' && item.highlightCountMode !== 'points' && !finalized;
@@ -2200,6 +2263,21 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                   );
                                 })()}
                               </div>
+                              {!ADVANCED_HIGHLIGHT_ENABLED && !structureReadOnly && <div className="flex flex-wrap items-center gap-2">
+                                <label className="font-bold text-slate-600">Khối lượng:
+                                  <input aria-label={'Khối lượng hạng mục con '+item.name} type="number" min="0" step="any"
+                                    value={item.workVolume ?? ''} disabled={quantityLocked || item.status==='Đã hoàn thành' || item.inspectionStatus==='Đạt nghiệm thu'}
+                                    onChange={event=>{
+                                      const raw=event.target.value, value=Number(raw);
+                                      if (raw!=='' && (!Number.isFinite(value)||value<0)) return;
+                                      roomDraftDirtyRef.current=true;
+                                      delete formulaMeasuredRef.current['sub:'+item.id];
+                                      if (raw==='') setSubItems(prev=>prev.map(s=>{if(s.id!==item.id)return s;const {workVolume: _removed,...rest}=s;return {...rest,highlightVolumeMode:'manual',highlightCountMode:'manual'};}));
+                                      else handleUpdateSubItem(item.id,{workVolume:value,highlightVolumeMode:'manual',highlightCountMode:'manual'});
+                                    }} className="ml-1.5 w-24 rounded-lg border border-slate-200 bg-white px-2 py-1.5"/>
+                                </label>
+                                <RoomQuantityCalculator label={'hạng mục con '+item.name} allowParent disabled={quantityLocked || item.status==='Đã hoàn thành' || item.inspectionStatus==='Đạt nghiệm thu'} onCalculate={(expression,source)=>calculateDraftFormula(catName,expression,source,item)}/>
+                              </div>}
                               {/* ĐVT Cái: count positions are stored separately from m² highlights and Defects. */}
                               {!structureReadOnly && <div className="mt-3 pt-2 border-t border-slate-200 flex flex-wrap items-center gap-2 text-[10.5px]" data-hnl-sub-unit-spacing="true">
                                 <label className="font-bold text-slate-600">ĐVT con:
@@ -2269,7 +2347,13 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                   </button>}
                                 </>}
                               </div>}
-                              <div data-hnl-room-team-contact-row="true" className="mt-3 flex min-w-0 flex-col gap-1.5 md:mt-1.5 xl:mt-0 xl:flex-row xl:items-center">
+                            </div>
+                            <div data-hnl-sub-team-group="true" className="mt-3 bg-slate-50 p-2 rounded-xl border border-slate-100 text-[10.5px]">
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <User className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                                <span className="font-bold text-slate-600">Đội thi công:</span>
+                              </div>
+                              <div data-hnl-room-team-contact-row="true" className="flex min-w-0 flex-col gap-1.5 xl:flex-row xl:items-center">
                               <select
                                 value={item.assignedTeam || ''}
                                 onChange={(e) => handleUpdateSubItem(item.id, { assignedTeam: e.target.value })}
