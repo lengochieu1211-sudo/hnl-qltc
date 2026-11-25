@@ -82,17 +82,23 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      # Pin the setup action; hosted runner may not expose SDK commands on PATH.
-      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
-      - name: Verify SDK tools and install emulator components
+      - name: Use preinstalled Android SDK and required components
         shell: bash
         run: |
           set -euo pipefail
-          command -v sdkmanager
-          sdkmanager --install 'platform-tools' 'emulator' 'system-images;android-34;google_apis;x86_64'
+          # Runner exposes an installed SDK but not its command-line tools on PATH.
+          # Do not install the obsolete SDK package 'tools'.
+          SDK_ROOT="/usr/local/lib/android/sdk"
+          test -x "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          export ANDROID_HOME="$SDK_ROOT"
+          export ANDROID_SDK_ROOT="$SDK_ROOT"
+          export PATH="$SDK_ROOT/cmdline-tools/latest/bin:$SDK_ROOT/platform-tools:$SDK_ROOT/emulator:$PATH"
+          printf 'ANDROID_HOME=%s\nANDROID_SDK_ROOT=%s\n' "$SDK_ROOT" "$SDK_ROOT" >> "$GITHUB_ENV"
+          printf '%s\n' "$SDK_ROOT/cmdline-tools/latest/bin" "$SDK_ROOT/platform-tools" "$SDK_ROOT/emulator" >> "$GITHUB_PATH"
+          sdkmanager --sdk_root="$SDK_ROOT" --install 'platform-tools' 'emulator' 'system-images;android-34;google_apis;x86_64'
           command -v adb
           command -v avdmanager
-          test -x "$ANDROID_HOME/emulator/emulator"
+          test -x "$SDK_ROOT/emulator/emulator"
       - uses: actions/download-artifact@v4
         with:
           name: pr492-native-qa-${{ github.sha }}
