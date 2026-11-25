@@ -784,3 +784,10 @@ details[open] > summary.hnl-native-disclosure::after { transform: rotate(180deg)
   summary.hnl-native-disclosure::after { display: none; }
   summary.hnl-native-disclosure::-webkit-details-marker { display: initial; }
 }
+
+/* Prevent double native/custom arrows in the nested map tools, including WebKit. */
+:is([data-hnl-map-tools-collapsible], [data-hnl-map-calibration-inline], [data-hnl-map-display-inline]) > summary {
+  list-style: none;
+}
+:is([data-hnl-map-tools-collapsible], [data-hnl-map-calibration-inline], [data-hnl-map-display-inline]) > summary::marker { content: ''; }
+:is([data-hnl-map-tools-collapsible], [data-hnl-map-calibration-inline], [data-hnl-map-display-inline]) > summary::-webkit-details-marker { display: none; }
