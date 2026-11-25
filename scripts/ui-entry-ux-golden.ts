@@ -971,3 +971,22 @@ for (const file of ['FloorPlanDefectTab.tsx','FloorHighlightDirectDraw.tsx','War
   assert(!/[▼▾▸▲▴]/.test(read('src/components/'+file)), file+': no text triangle dropdown arrows');
 }
 console.log('Dropdown / disclosure visual Golden PASS');
+
+
+// Nested sheets: ensure every real toggle uses the same stable glyph rather than swapping SVGs.
+for(const [file, states] of [
+  ['RoomHighlightModal.tsx',['showColorPicker','showAdvancedHighlights','showMaterialEstimates','showDimensionSettings']],
+  ['FloorPlanDefectTab.tsx',['showFloorProgressPanel','roomExpanded','!isCurrentGroupCollapsed']],
+  ['WorkVolumeTab.tsx',['isFloorDropdownOpen']],
+  ['SettingsAccordionCard.tsx',['open']],
+  ['ExpandCollapseButton.tsx',['expanded']],
+  ['ActionMenuButton.tsx',['open']],
+] as const){
+  const code=read('src/components/'+file);
+  for(const state of states) assert(code.includes('data-open={'+state+'}'),file+': nested indicator must follow '+state);
+}
+assert(!read('src/components/RoomHighlightModal.tsx').includes('▶ Tiến độ thi công:'),'Static status labels must not look like expand arrows');
+for(const file of ['ExportPdfModal.tsx','PrimaryDriveStatusCard.tsx']) assert(
+  read('src/components/'+file).includes('hnl-disclosure-chevron h-4 w-4 text-slate-500 group-open:rotate-180'),
+  file+': deep native summary must rotate without changing label layout');
+console.log('Nested dropdown / disclosure source audit PASS');
