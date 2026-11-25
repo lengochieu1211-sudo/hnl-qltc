@@ -19,7 +19,6 @@ import {
   ArrowDown,
   Calculator,
   Sliders,
-  ChevronUp,
   ChevronDown,
   Edit2,
   Check,
@@ -1733,7 +1732,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               </div>
               <div className="flex items-center gap-1 text-slate-500 text-xs font-semibold shrink-0">
                 <span>{showColorPicker ? 'Thu gọn' : 'Tùy chỉnh'}</span>
-                {showColorPicker ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                <ChevronDown data-open={showColorPicker} className="hnl-disclosure-chevron w-4 h-4" aria-hidden="true" />
               </div>
             </button>
 
@@ -1887,7 +1886,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       {/* Progress Status */}
                       <div>
-                        <span className="font-bold text-slate-600 block mb-1">▶ Tiến độ thi công:</span>
+                        <span className="font-bold text-slate-600 block mb-1">Tiến độ thi công:</span>
                         <div data-hnl-pc-v36-room-status="bulk" className="grid grid-cols-3 gap-1">
                           {(['Chưa làm', 'Đang làm', 'Đã hoàn thành'] as AcceptanceStatus[]).map((st) => (
                             <button
@@ -1906,7 +1905,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
                       {/* Inspection Status */}
                       <div>
-                        <span className="font-bold text-slate-600 block mb-1">▶ Nghiệm thu:</span>
+                        <span className="font-bold text-slate-600 block mb-1">Nghiệm thu:</span>
                         <div data-hnl-pc-v36-room-status="bulk" className="grid grid-cols-3 gap-1">
                           {(['Chưa nghiệm thu', 'Đạt nghiệm thu', 'Chưa đạt (Cần sửa)'] as RoomInspectionResult[]).map((st) => (
                             <button
@@ -2447,7 +2446,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                           <div data-hnl-room-pc-status-column="true" className="min-w-0 space-y-2 xl:space-y-2.5">
                           {/* Status buttons: Thi công */}
                           <div>
-                            <span className="text-[10.5px] font-bold text-slate-500 block mb-1">▶ Tiến độ thi công:</span>
+                            <span className="text-[10.5px] font-bold text-slate-500 block mb-1">Tiến độ thi công:</span>
                             <div data-hnl-pc-v36-room-status="item" className="grid grid-cols-3 gap-1.5 mb-1.5">
                               {(['Chưa làm', 'Đang làm', 'Đã hoàn thành'] as AcceptanceStatus[]).map((st) => (
                                 <button
@@ -2472,7 +2471,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
                           {/* Status buttons: Nghiệm thu */}
                           <div className="pt-2 border-t border-slate-200">
-                            <span className="text-[10.5px] font-bold text-indigo-700 block mb-1">▶ Nghiệm thu hạng mục này:</span>
+                            <span className="text-[10.5px] font-bold text-indigo-700 block mb-1">Nghiệm thu hạng mục này:</span>
                             <div data-hnl-pc-v36-room-status="item" className="grid grid-cols-3 gap-1.5 mb-1.5">
                               {(['Chưa nghiệm thu', 'Đạt nghiệm thu', 'Chưa đạt (Cần sửa)'] as RoomInspectionResult[]).map((st) => (
                                 <button
@@ -2533,7 +2532,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                   <span className="block font-extrabold text-sky-950 text-xs">Mở rộng highlight &amp; khối lượng</span>
                   <span className="block text-[10.5px] text-sky-700">Tùy chọn · vẽ vùng phụ và tự tính theo tỷ lệ m²</span>
                 </span>
-                {showAdvancedHighlights ? <ChevronUp className="w-4 h-4 text-sky-700 shrink-0" /> : <ChevronDown className="w-4 h-4 text-sky-700 shrink-0" />}
+                <ChevronDown data-open={showAdvancedHighlights} className="hnl-disclosure-chevron w-4 h-4 text-sky-700 shrink-0" aria-hidden="true" />
               </button>
               {showAdvancedHighlights && (
                 <div className="border-t border-sky-200 bg-white/70 p-3.5 space-y-3">
@@ -2778,7 +2777,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                   </span>
                 )}
                 <span>{showMaterialEstimates ? 'Thu gọn' : 'Chi tiết'}</span>
-                {showMaterialEstimates ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                <ChevronDown data-open={showMaterialEstimates} className="hnl-disclosure-chevron w-4 h-4" aria-hidden="true" />
               </div>
             </button>
 
@@ -2896,7 +2895,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
               </div>
               <div className="flex items-center gap-1 text-amber-900 text-xs font-semibold shrink-0">
                 <span>{showDimensionSettings ? 'Thu gọn' : 'Tùy chỉnh'}</span>
-                {showDimensionSettings ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                <ChevronDown data-open={showDimensionSettings} className="hnl-disclosure-chevron w-4 h-4" aria-hidden="true" />
               </div>
             </button>
 
