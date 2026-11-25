@@ -49,7 +49,8 @@ jobs:
           test "$GITHUB_EVENT_NAME" = push
           test "$GITHUB_REF" = refs/heads/dev
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-parse HEAD^)" = "$APPROVED_SOURCE"
+          test "$(git rev-parse HEAD^)" = '22b712e1ba33ab6f0160521b507740d9774546e9'
+          test "$(git rev-parse HEAD~2)" = "$APPROVED_SOURCE"
           git merge-base --is-ancestor "$APPROVED_SOURCE" HEAD
           test "$(git diff --name-only "$APPROVED_SOURCE" HEAD)" = '.github/workflows/hnl-dev-pr508-highlight-auto-formula-hosting-only-20261125.yml'
           test "$(git ls-remote origin refs/heads/dev | cut -f1)" = "$GITHUB_SHA"
@@ -91,7 +92,7 @@ jobs:
           node --experimental-strip-types scripts/highlight-cach2-cas-quantity-golden.mjs
           node --experimental-strip-types scripts/highlight-category-id-qty-ui-golden.mjs
           node scripts/metric-drawing-single-calibration-room-20261122-golden.mjs
-          node scripts/room-highlight-auto-formula-copy-golden.mjs
+          node scripts/room-highlight-compact-copy-golden.mjs
           node scripts/warehouse-catalog-voucher-link-golden.mjs
           node scripts/warehouse-voucher-source-return-golden.mjs
       - name: Read existing Firebase DEV SDK credentials (no PROD)
@@ -146,7 +147,7 @@ jobs:
           node --experimental-strip-types scripts/highlight-cach2-cas-quantity-golden.mjs
           node --experimental-strip-types scripts/highlight-category-id-qty-ui-golden.mjs
           node scripts/metric-drawing-single-calibration-room-20261122-golden.mjs
-          node scripts/room-highlight-auto-formula-copy-golden.mjs
+          node scripts/room-highlight-compact-copy-golden.mjs
           node scripts/warehouse-catalog-voucher-link-golden.mjs
           node scripts/warehouse-voucher-source-return-golden.mjs
           node --experimental-strip-types scripts/room-highlight-basic-release-golden.mjs
