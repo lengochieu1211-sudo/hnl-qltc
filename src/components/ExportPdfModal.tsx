@@ -2162,8 +2162,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
           <details open data-hnl-report-typography="sort-order" className="group bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden">
             <summary className="cursor-pointer select-none px-3 py-2.5 text-sm font-extrabold text-slate-800 flex items-center justify-between gap-2">
               <span>↕️ Sắp xếp từng phần trong PDF</span>
-              <span className="text-[11px] text-slate-400 group-open:hidden">Mở</span>
-              <span className="text-[11px] text-slate-400 hidden group-open:inline">Thu gọn</span>
+              <ChevronDown className="hnl-disclosure-chevron h-4 w-4 text-slate-500 group-open:rotate-180" aria-hidden="true" />
             </summary>
             <div className="border-t border-slate-200 p-3 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <label className="space-y-1">
@@ -2398,8 +2397,7 @@ Báo cáo từ Hệ Thống Quản Lý Thi Công & Nghiệm Thu
             <details className="group bg-white border border-indigo-100 rounded-xl overflow-hidden">
               <summary className="cursor-pointer select-none px-3 py-2 text-sm font-extrabold text-indigo-800 flex items-center justify-between gap-2">
                 <span>🎨 Tùy chỉnh highlight & ký hiệu trên PDF</span>
-                <span className="text-[11px] text-slate-400 group-open:hidden">Mở</span>
-                <span className="text-[11px] text-slate-400 hidden group-open:inline">Thu gọn</span>
+                <ChevronDown className="hnl-disclosure-chevron h-4 w-4 text-slate-500 group-open:rotate-180" aria-hidden="true" />
               </summary>
               <div className="border-t border-indigo-100 p-3 space-y-3">
                 <p className="text-[11px] text-slate-500 leading-relaxed">
