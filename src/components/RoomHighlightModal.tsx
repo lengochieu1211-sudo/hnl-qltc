@@ -1714,7 +1714,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
           {/* Custom Highlight Color Option (Collapsible) */}
           {!structureReadOnly && <div className="bg-slate-50/90 rounded-2xl border border-slate-200 overflow-hidden">
-            <button
+            <button aria-expanded={showColorPicker}
               type="button"
               onClick={() => setShowColorPicker(!showColorPicker)}
               className="w-full p-3 flex items-center justify-between text-left hover:bg-slate-100/80 transition-colors cursor-pointer"
@@ -2752,7 +2752,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
           {/* MATERIAL ESTIMATES LINKED FROM WAREHOUSE (Collapsible) */}
           <div className="bg-emerald-50/90 rounded-2xl border border-emerald-200/90 overflow-hidden">
-            <button
+            <button aria-expanded={showMaterialEstimates}
               type="button"
               onClick={() => setShowMaterialEstimates(!showMaterialEstimates)}
               className="w-full p-3.5 flex items-center justify-between text-left hover:bg-emerald-100/60 transition-colors cursor-pointer"
@@ -2882,7 +2882,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 
           {/* Zone Geometry Adjustments & 2-Point Redraw Option (Collapsible) */}
           {!structureReadOnly && <div className="bg-amber-50/80 rounded-2xl border border-amber-200/90 overflow-hidden">
-            <button
+            <button aria-expanded={showDimensionSettings}
               type="button"
               onClick={() => setShowDimensionSettings(!showDimensionSettings)}
               className="w-full p-3.5 flex items-center justify-between text-left hover:bg-amber-100/50 transition-colors cursor-pointer"
