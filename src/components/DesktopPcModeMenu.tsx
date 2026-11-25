@@ -39,7 +39,7 @@ export const DesktopPcModeMenu: React.FC<{
         onClick={() => setOpen(v => !v)} title="Chọn giao diện PC · không thay đổi dữ liệu">
         <MonitorCog size={15} aria-hidden="true" />
         <span>Giao diện PC</span>
-        <ChevronDown size={13} aria-hidden="true" />
+        <ChevronDown size={13} data-open={open} className="hnl-disclosure-chevron" aria-hidden="true" />
       </button>
       {open && <div role="menu" aria-label="Ba giao diện PC" className="hnl-pc-mode-dropdown">
         {options.map(option => (
