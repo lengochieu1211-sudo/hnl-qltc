@@ -125,7 +125,7 @@ export const UserGuideCenter: React.FC = () => {
           </div>
           {filteredGroups.map((group) => (
             <details key={group.id} open={Boolean(query) || allGroupsOpen || selectedGroup?.id === group.id} className="group rounded-xl border border-slate-200 bg-white" data-hnl-guide-group={group.id}>
-              <summary className="cursor-pointer px-3 py-2.5 text-xs font-bold text-slate-800 marker:text-indigo-500">{group.title} <span className="font-normal text-slate-500">({group.topics.length})</span></summary>
+              <summary className="hnl-native-disclosure cursor-pointer px-3 py-2.5 text-xs font-bold text-slate-800 marker:text-indigo-500">{group.title} <span className="font-normal text-slate-500">({group.topics.length})</span></summary>
               <div className="space-y-0.5 border-t border-slate-100 px-1 py-1">
                 {group.topics.map((topic) => (
                   <button
