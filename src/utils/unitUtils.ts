@@ -36,3 +36,8 @@ export function unitKey(unit?: string | null): string {
 export function areSameUnit(a?: string | null, b?: string | null): boolean {
   return unitKey(a) === unitKey(b);
 }
+
+/** Highlight-only length recognition: preserve the stored unit label (m or md). */
+export function isHighlightLengthUnit(unit?: string | null): boolean {
+  return ['m', 'md'].includes(normalizeUnit(unit).toLowerCase().replace(/\s/g, ''));
+}

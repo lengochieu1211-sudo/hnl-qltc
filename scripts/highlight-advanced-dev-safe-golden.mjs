@@ -18,6 +18,10 @@ assert.equal(getDirectHighlightEffectiveUnit(room,'Ceiling','stage-area'),'m²')
 assert.equal(getDirectHighlightEffectiveUnit(room,'Ceiling','stage-count'),'Cái');
 assert.equal(canApplyDirectHighlightQuantity(room,request('stage-inherit','m²')),false);
 assert.equal(canApplyDirectHighlightQuantity(room,request('stage-inherit','m')),true);
+const mdRoom={...room,categoryVolumeUnits:{Ceiling:'md'}};
+assert.equal(canApplyDirectHighlightQuantity(mdRoom,request('stage-inherit','m')),true);
+assert.equal(canApplyDirectHighlightQuantity(mdRoom,request('stage-inherit','m²')),false);
+assert.equal(canApplyDirectHighlightQuantity(mdRoom,{...request('stage-inherit','m'),shapes:[{x:0,y:0,width:10,height:10}]}),false);
 assert.equal(canApplyDirectHighlightQuantity(room,request('stage-area','m²')),true);
 assert.equal(canApplyDirectHighlightQuantity(room,request('stage-count','m²')),false);
 assert.equal(canApplyDirectHighlightQuantity(room,request('stage-accepted','m²')),false);

@@ -1,7 +1,7 @@
 import type { FloorPlan, RoomProgressItem, RoomQuantityFormulaSetting, RoomSubItem, WorkVolume } from '../types';
 import { measureBasicRoomQuantitySource } from './roomHighlightBasicMetric';
 import { evaluateRoomQuantityFormula, type QuantityVariables } from './roomQuantityFormula';
-import { normalizeUnit, areSameUnit } from './unitUtils';
+import { normalizeUnit, areSameUnit, isHighlightLengthUnit } from './unitUtils';
 
 const norm = (s:string) => s.trim().toLocaleLowerCase('vi-VN');
 const own = (o:object,k:string) => Object.prototype.hasOwnProperty.call(o,k);
@@ -47,7 +47,7 @@ export function recalculateLinkedRoomQuantities(room:RoomProgressItem,floor:Floo
        !Number.isFinite(actual) || actual!==setting.value || !areSameUnit(setting.unit||'',unit))return null;
     const expression=setting.expression.trim().replace(/^=/,'').toUpperCase();
     if(!/[A-Z]/.test(expression))return null;
-    if(expression==='S'&&!areSameUnit(unit,'m²') || (expression==='L'||expression==='P')&&!areSameUnit(unit,'m') ||
+    if(expression==='S'&&!areSameUnit(unit,'m²') || (expression==='L'||expression==='P')&&!isHighlightLengthUnit(unit) ||
        expression==='KL'&&(!parentUnit||!areSameUnit(unit,parentUnit)))return null;
     const vars:QuantityVariables={};
     const names: string[] = expression.match(/[A-Z]+/g)||[];

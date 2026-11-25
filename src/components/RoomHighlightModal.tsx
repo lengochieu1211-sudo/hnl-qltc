@@ -33,7 +33,7 @@ import { formatDecimal, formatAdaptiveDecimal, evaluateMathExpression, useFormat
 import { MathNumberInput } from './MathNumberInput';
 import { createEntityId, createDeterministicId } from '../utils/idUtils';
 import { toLocalDateInputValue } from '../utils/dateFormatter';
-import { normalizeUnit, areSameUnit } from '../utils/unitUtils';
+import { normalizeUnit, areSameUnit, isHighlightLengthUnit } from '../utils/unitUtils';
 import { totalCountPoints } from '../utils/highlightCountPoints';
 import { getRoomWorkCategoryUnit } from '../utils/roomCategoryUnit';
 import { ADVANCED_HIGHLIGHT_ENABLED, getBasicRoomMetricUnit, type BasicRoomQuantitySource } from '../utils/roomHighlightBasicMetric';
@@ -156,7 +156,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
 }) => {
   const roomDraftDirtyRef = React.useRef(false);
   const countStageAfterSaveRef = React.useRef<string | null>(null);
-  const basicMeasuredRef = React.useRef<Record<string, { unit: 'm²' | 'm'; value: number; key: string }>>({});
+  const basicMeasuredRef = React.useRef<Record<string, { unit: 'm²' | 'm' | 'md'; value: number; key: string }>>({});
   type DraftMeasurement = { cat: string; stageId?: string; expression: string; source: string; unit: string; value: number; key: string };
   type QuantityDraft = { raw: string; auto: boolean; error?: string };
   const formulaMeasuredRef = React.useRef<Record<string, DraftMeasurement>>({});
@@ -754,7 +754,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     if (quantityLocked || stage?.status === 'Đã hoàn thành' || stage?.inspectionStatus === 'Đạt nghiệm thu') return fail('Khối lượng đã khóa hoặc đã chốt.');
     const unit = normalizeUnit(stage?.volumeUnit || getCategorySourceUnit(cat));
     if (['area','perimeter','length'].includes(source) && !stage?.volumeUnit && !getBasicMeasureUnit(cat)) return fail('Chưa xác định ĐVT đo của hạng mục.');
-    if ((source === 'area' && !areSameUnit(unit,'m²')) || ((source === 'perimeter' || source === 'length') && !areSameUnit(unit,'m')))
+    if ((source === 'area' && !areSameUnit(unit,'m²')) || ((source === 'perimeter' || source === 'length') && !isHighlightLengthUnit(unit)))
       return fail('Nguồn đo và ĐVT kết quả không khớp. Dùng công thức nếu cần hệ số chuyển đổi.');
     const variables: QuantityVariables = {};
     const names: string[] = expression.toUpperCase().match(/[A-Z]+/g) || [];
@@ -854,7 +854,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     if (ADVANCED_HIGHLIGHT_ENABLED || !roomItem?.id || !onMeasureBasicRoom || structureReadOnly ||
         roomItem.positionLocked || roomItem.inspectionStatus === 'Đạt nghiệm thu') return;
     const unit = getBasicMeasureUnit(cat);
-    if (!unit) { window.alert('Chưa xác định ĐVT m² hoặc m của hạng mục chính.'); return; }
+    if (!unit) { window.alert('Chưa xác định ĐVT m², m hoặc md của hạng mục chính.'); return; }
     const result = onMeasureBasicRoom(roomItem, unit);
     if (result.valid === false) { window.alert(result.reason); return; }
     // Match the existing room-form number precision; never write on measurement click.
@@ -1374,7 +1374,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     // Recheck the same room, current calibration and unit before the ordinary save.
     // Do not treat a changed floor/room or a revoked role as an accepted measurement.
     if (!ADVANCED_HIGHLIGHT_ENABLED) {
-      for (const [cat, measurement] of Object.entries<{ unit: 'm²' | 'm'; value: number; key: string }>(basicMeasuredRef.current)) {
+      for (const [cat, measurement] of Object.entries<{ unit: 'm²' | 'm' | 'md'; value: number; key: string }>(basicMeasuredRef.current)) {
         const measured = roomItem && onMeasureBasicRoom && onMeasureBasicRoom(roomItem, measurement.unit);
         if (structureReadOnly || !activeCategories.includes(cat) || getBasicMeasureUnit(cat) !== measurement.unit ||
             !measured || measured.valid === false || Math.round(measured.value * 100) / 100 !== measurement.value ||
@@ -2338,7 +2338,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                     disabled={item.status === 'Đã hoàn thành' || item.inspectionStatus === 'Đạt nghiệm thu' || roomItem?.inspectionStatus === 'Đạt nghiệm thu'}
                                     className="ml-1.5 rounded-lg border border-slate-200 px-2 py-1.5 bg-white text-slate-800"
                                     value={!item.volumeUnit ? '__main__' :
-                                      ['m²','m','m³','Cái','Thanh'].includes(normalizeUnit(item.volumeUnit))
+                                      ['m²','m','md','m³','Cái','Thanh'].includes(normalizeUnit(item.volumeUnit))
                                         ? normalizeUnit(item.volumeUnit) : '__custom__'}
                                     onChange={event => {
                                       const next = event.target.value;
@@ -2358,14 +2358,14 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                       setCustomUnitStageId(null);
                                     }}>
                                     <option value="__main__">Theo ĐVT chính ({getCategorySourceUnit(catName)})</option>
-                                    {['m²','m','m³','Cái','Thanh'].map(unit =>
+                                    {['m²','m','md','m³','Cái','Thanh'].map(unit =>
                                       <option key={unit} value={unit}>{unit}</option>)}
-                                    {item.volumeUnit && !['m²','m','m³','Cái','Thanh'].includes(normalizeUnit(item.volumeUnit)) &&
+                                    {item.volumeUnit && !['m²','m','md','m³','Cái','Thanh'].includes(normalizeUnit(item.volumeUnit)) &&
                                       <option value="__custom__">{item.volumeUnit} (đã lưu)</option>}
                                   </select>
                                 </label>
                                 {customUnitStageId !== item.id && item.volumeUnit &&
-                                  !['m²','m','m³','Cái','Thanh'].includes(normalizeUnit(item.volumeUnit)) &&
+                                  !['m²','m','md','m³','Cái','Thanh'].includes(normalizeUnit(item.volumeUnit)) &&
                                   item.status !== 'Đã hoàn thành' && item.inspectionStatus !== 'Đạt nghiệm thu' && (
                                     <button type="button" className="text-indigo-700 underline font-bold"
                                       onClick={() => {setCustomUnitStageId(item.id);setCustomUnitText(item.volumeUnit || '');}}>Sửa ĐVT</button>

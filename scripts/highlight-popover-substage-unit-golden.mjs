@@ -44,7 +44,7 @@ assert.match(room,/value=\{!item\.volumeUnit \? '__main__'/);
 assert.match(room,/Theo ĐVT chính \(\{getCategorySourceUnit\(catName\)\}\)/);
 assert.match(room,/Nhập đơn vị khác…/);
 assert.match(room,/data-hnl-sub-unit-custom-editor="true"/);
-assert.match(room, /\['m²','m','m³','Cái','Thanh'\]\.map\(unit/);
+assert.match(room, /\['m²','m','md','m³','Cái','Thanh'\]\.map\(unit/);
 assert.match(room, /<option value="__custom__">\{item\.volumeUnit\} \(đã lưu\)<\/option>/);
 assert.doesNotMatch(room, /Nhập đơn vị khác…/);
 assert.match(room,/volumeUnit: next === '__main__' \? '' : next/);
