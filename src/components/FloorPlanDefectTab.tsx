@@ -6600,7 +6600,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
       }
     }} className={`group/map-menu relative w-auto min-w-0 shrink-0 rounded-xl border transition-all open:bg-indigo-600 open:text-white open:font-black open:shadow-sm open:ring-2 open:ring-indigo-300 open:border-indigo-600 ${dark ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-200/90 bg-white text-slate-700 hover:bg-slate-100 shadow-2xs'}`}>
       <summary className="text-xs font-bold group-open/map-menu:font-black px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer whitespace-nowrap list-none" aria-label="Mở tùy chỉnh hiển thị mặt bằng">
-        <span aria-hidden="true" className="text-sm leading-none shrink-0">⚙️</span><span>Hiển thị</span><span className="text-[10px] leading-none transition-transform group-open/map-menu:rotate-180">▾</span>
+        <span aria-hidden="true" className="text-sm leading-none shrink-0">⚙️</span><span>Hiển thị</span><ChevronDown className="hnl-disclosure-chevron h-3.5 w-3.5 group-open/map-menu:rotate-180" aria-hidden="true" />
       </summary>
       <div data-hnl-map-display-popover="true" className={`hnl-mobile-map-display-panel absolute left-0 right-auto top-full z-[95] mt-1 w-[min(18rem,calc(100vw-2rem))] max-h-[min(70dvh,36rem)] overflow-y-auto overscroll-contain rounded-xl border shadow-xl ${dark ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-200 bg-white text-slate-700'}`}>
         {renderMapDisplayControls(dark)}
@@ -7385,7 +7385,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                       if (!activeFloor || isCountDrawing || isShapeDrawing || isRoomCreationDrawing || drawTool !== 'none' || isDefectPinPlacementMode) event.preventDefault();
                     }}
                     className="text-xs font-bold group-open/map-menu:font-black px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer whitespace-nowrap list-none aria-disabled:opacity-40">
-                    <span className="text-sm leading-none shrink-0">📏</span><span>Đo tỷ lệ</span><span className="text-[10px] leading-none transition-transform group-open/map-menu:rotate-180">▾</span>
+                    <span className="text-sm leading-none shrink-0">📏</span><span>Đo tỷ lệ</span><ChevronDown className="hnl-disclosure-chevron h-3.5 w-3.5 group-open/map-menu:rotate-180" aria-hidden="true" />
                   </summary>
                   <div data-hnl-map-calibration-popover="true" className="absolute left-0 right-auto top-full z-[95] mt-1 w-[min(18rem,calc(100vw-2rem))] max-h-[min(70dvh,36rem)] overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-3 text-slate-700 shadow-xl space-y-2">
                     <div className="flex items-center justify-between gap-2 text-xs font-black">
@@ -7836,7 +7836,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                           aria-label="Mở tùy chỉnh hiển thị mặt bằng"
                           onClick={toggleFullscreenDisplaySettings}
                           className={`min-h-9 rounded-xl border border-slate-600 px-3 text-[11px] font-bold shrink-0 ${showFullscreenDisplaySettings ? 'bg-indigo-600 text-white font-black shadow-sm ring-2 ring-indigo-300 border-indigo-600' : 'bg-slate-800 text-slate-100'}`}>
-                          ⚙️ Hiển thị {showFullscreenDisplaySettings ? '▴' : '▾'}
+                          <span className="inline-flex items-center gap-1">⚙️ Hiển thị <ChevronDown data-open={showFullscreenDisplaySettings} className="hnl-disclosure-chevron h-3.5 w-3.5" aria-hidden="true" /></span>
                         </button>
 
                         {/* Room creation and Cách 2 edit are mutually exclusive. */}
@@ -8411,7 +8411,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   onClick={() => setShowHighlightColorLegend((value) => !value)}
                   className="w-full flex items-center justify-between gap-2 px-2.5 py-2 font-extrabold text-left">
                   <span className="truncate">🎨 Màu Highlight ({visibleHighlightColorRows.length})</span>
-                  <span aria-hidden="true">{showHighlightColorLegend ? '▴' : '▾'}</span>
+                  <ChevronDown data-open={showHighlightColorLegend} className="hnl-disclosure-chevron h-3.5 w-3.5" aria-hidden="true" />
                 </button>
                 {showHighlightColorLegend && (
                   <div className="max-h-[32dvh] overflow-y-auto overscroll-contain border-t border-slate-700 p-2 space-y-1.5">
