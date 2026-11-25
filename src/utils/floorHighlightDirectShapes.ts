@@ -1,5 +1,6 @@
 /** Pure room geometry-stage selectors. No mutations, Firebase calls, ID or quantity changes. */
 import type { HighlightRegionShape, Point2D, RoomProgressItem } from '../types';
+import { isHighlightLengthUnit } from './unitUtils.ts';
 import { findRoomObjectSnap } from './roomHighlightObjectSnap.ts';
 import { applyCadDrawingGuide } from './roomHighlightCadShortcuts.ts';
 import { calculateHighlightTotalRatio, getHighlightStageShapes, validateHighlightShape } from './highlightTotalGeometry.ts';
@@ -180,7 +181,7 @@ export function canApplyDirectHighlightQuantity(room: RoomProgressItem | undefin
   const storedUnit = getDirectHighlightEffectiveUnit(room, request.category, request.target)
     .toLowerCase().replace(/\s/g, '').replace('m2', 'm²');
   if (!storedUnit) return false; // Unknown unit must never be treated as a number of m².
-  if (storedUnit !== request.measuredQuantity?.unit) return false;
+  if (request.measuredQuantity?.unit === 'm' ? !isHighlightLengthUnit(storedUnit) : storedUnit !== request.measuredQuantity?.unit || request.measuredQuantity?.unit !== 'm²') return false;
   if (!Number.isFinite(request.measuredQuantity.value) || request.measuredQuantity.value <= 0 || request.measuredQuantity.value > 1_000_000_000) return false;
   if (!request.floorId || request.floorId !== room.floorId || !request.expectedFloorSourceKey ||
       !Number.isFinite(request.expectedCalibrationUpdatedAt) || request.expectedCalibrationUpdatedAt <= 0) return false;

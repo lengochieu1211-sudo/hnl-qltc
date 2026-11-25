@@ -21,7 +21,7 @@ export function RoomQuantityCalculator({label,raw,result,auto,error,disabled,all
   const recalculate = useRef(onRecalculate);
   recalculate.current = onRecalculate;
   const [showHelp,setShowHelp] = useState(false);
-  const help = `S: diện tích · L: chu vi/chiều dài${allowParent?' · KL: khối lượng chính':''}. Nhấn vào KL để sửa công thức.`;
+  const help = `S: Diện tích · L: Chu vi/chiều dài${allowParent?' · KL: Khối lượng hạng mục chính':''}`;
   const isLinked = /[A-Za-z]/.test(raw);
   useEffect(() => {
     if (!auto || disabled || !isLinked) return;

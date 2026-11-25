@@ -3,9 +3,9 @@ import { getValidFloorMetricCalibration, measureHighlightAreaM2, measureHighligh
 
 // Temporary release gate: retain advanced data and implementation, hide advanced entry points.
 export const ADVANCED_HIGHLIGHT_ENABLED: boolean = false;
-export function getBasicRoomMetricUnit(unit: string): 'm²' | 'm' | null {
+export function getBasicRoomMetricUnit(unit: string): 'm²' | 'm' | 'md' | null {
   const key = unit.trim().toLowerCase().replace(/\s/g, '');
-  return key === 'm2' || key === 'm²' ? 'm²' : key === 'm' ? 'm' : null;
+  return key === 'm2' || key === 'm²' ? 'm²' : key === 'm' || key === 'md' ? key : null;
 }
 
 /** Use only the existing closed room boundary, never advanced total/main/sub shapes. */
@@ -15,7 +15,7 @@ export function measureBasicRoomHighlight(args: {
   const { floor, image, room } = args;
   const invalid = (reason: string): MetricMeasure => ({ valid: false, reason });
   const unit = getBasicRoomMetricUnit(args.unit);
-  if (!unit) return invalid('Chỉ hỗ trợ hạng mục chính có ĐVT m² hoặc m đã xác định.');
+  if (!unit) return invalid('Chỉ hỗ trợ hạng mục chính có ĐVT m², m hoặc md đã xác định.');
   if (room.floorId !== floor.id || room.deletedAt || room.positionLocked || room.inspectionStatus === 'Đạt nghiệm thu')
     return invalid('Phòng không thuộc tầng này, đã khóa, đã xóa hoặc đã nghiệm thu.');
   if (room.isPolyline || ![room.x, room.y, room.width, room.height].every(Number.isFinite) ||

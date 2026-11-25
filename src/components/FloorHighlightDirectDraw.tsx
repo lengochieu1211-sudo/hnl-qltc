@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown } from 'lucide-react';
+import { isHighlightLengthUnit } from '../utils/unitUtils';
 import type { FloorPlan, HighlightRegionShape, Point2D, RoomProgressItem, WorkVolume } from '../types';
 import { getValidFloorMetricCalibration, measureHighlightAreaM2, measureHighlightLengthM, measureWallAreaM2 } from '../utils/highlightMetricGeometry';
 import { getDirectStageCategory, getSavedDirectHighlightShapes, getDirectHighlightCategoryNames, getDirectHighlightEffectiveUnit, resolveDirectHighlightLaunchCategory, mapDirectHighlightPointerToFloor, getDirectHighlightDrawPoint } from '../utils/floorHighlightDirectShapes';
@@ -178,7 +179,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
   const unresolvedAutoAlias = autoByDisplayAlias && !autoByKey;
   const autoMode = autoByKey || autoByDisplayAlias;
   const isAreaUnit = ['m2','m²'].includes(activeUnit.trim().toLowerCase().replace(/\s/g,''));
-  const isLengthUnit = activeUnit.trim().toLowerCase().replace(/\s/g,'') === 'm';
+  const isLengthUnit = isHighlightLengthUnit(activeUnit);
   const calibrationStatus = floor ? getValidFloorMetricCalibration(floor, imageDimensions)
     : {valid:false as const, reason:'Chưa chọn mặt bằng.'};
   const linePreview = floor ? measureHighlightLengthM({floor, image:imageDimensions, floorPath:measurePath})
@@ -365,7 +366,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
       setNotice('Giá trị đo không hợp lệ, không thể cập nhật khối lượng.'); return;
     }
     if (kind === 'length' ? !isLengthUnit : !isAreaUnit) {
-      setNotice('Đơn vị hạng mục không khớp m hoặc m². Không tự chuyển đổi đơn vị.'); return;
+      setNotice('Đơn vị hạng mục không khớp m, md hoặc m². Không tự chuyển đổi đơn vị.'); return;
     }
     if (kind === 'area' && (!candidateShapes.length || candidateShapes.length > LIMIT || !previewRatio.valid || !candidateShapes.every(validateHighlightShape))) {
       setNotice('Cần vùng vẽ hợp lệ trước khi chuyển diện tích thành khối lượng.'); return;
@@ -376,7 +377,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
     const label = currentTarget === 'main' ? `hạng mục chính “${currentCategory}”` : `hạng mục con “${targetStage?.name || currentTarget}”`;
     const unit = measure.unit;
     if (!window.confirm(`XÁC NHẬN CẬP NHẬT KHỐI LƯỢNG CHÍNH THỨC\n${label}\n` +
-      `Giá trị cũ: ${oldQuantity ?? 'chưa nhập'} ${activeUnit}\nGiá trị đo mới: ${value} ${unit}\n` +
+      `Giá trị cũ: ${oldQuantity ?? 'chưa nhập'} ${activeUnit}\nGiá trị đo mới: ${value} ${kind === 'length' ? activeUnit : unit}\n` +
       `${kind === 'area' && replaceExisting && oldShapes.length ? 'Các vùng cũ của đúng hạng mục này sẽ được thay thế. ' : ''}Chỉ ADMIN được xác nhận. Vùng cũ của hạng mục khác và dữ liệu lịch sử vẫn giữ nguyên. Tiếp tục?`)) return;
     const request: DirectHighlightQuantitySaveRequest = {
       roomId: room.id, expectedUpdatedAt: baselineRef.current.updatedAt,
@@ -504,7 +505,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
           {lineMode && <div className="space-y-1 text-[10px]" data-hnl-cach2-length-preview="true">
             <div>Chạm lần lượt các điểm theo tuyến. {measurePath.length} điểm. Tuyến không tự chuyển thành vùng khép kín.</div>
             <div className="font-bold text-teal-200">{linePreview.valid
-              ? `Chiều dài thực tế: ${linePreview.value.toLocaleString('vi-VN',{maximumFractionDigits:2})} m`
+              ? `Chiều dài thực tế: ${linePreview.value.toLocaleString('vi-VN',{maximumFractionDigits:2})} ${isLengthUnit ? activeUnit : 'm'}`
               : ('reason' in linePreview ? linePreview.reason : 'Chưa đo được tuyến.')}</div>
             <div className="grid grid-cols-3 gap-1">
               <label>Cao vách (m)<input aria-label="Chiều cao vách mét" value={wallHeight} onChange={e=>setWallHeight(e.target.value)} inputMode="decimal" className="w-full rounded bg-white text-slate-900 p-1" /></label>

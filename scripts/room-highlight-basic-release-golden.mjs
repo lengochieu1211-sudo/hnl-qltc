@@ -10,7 +10,9 @@ const calc=(unit, r=room, f=floor, i=image)=>measureBasicRoomHighlight({floor:f,
 const approx=(r,n)=>{assert.equal(r.valid,true,JSON.stringify(r));assert.ok(Math.abs(r.value-n)<1e-8,`${r.value} != ${n}`);};
 assert.equal(ADVANCED_HIGHLIGHT_ENABLED,false);
 const snapshot=JSON.stringify({room,floor});
-approx(calc('m²'),50);approx(calc('m2'),50);approx(calc('m'),30);
+approx(calc('m²'),50);approx(calc('m2'),50);approx(calc('m'),30);approx(calc('md'),30);approx(calc('MD'),30);
+assert.equal(getBasicRoomMetricUnit('md'),'md');
+assert.equal(getBasicRoomMetricUnit('m'),'m');
 // L-shaped room 10x5 with a 4x2.5 cutout; exact polygon, not bounding box.
 const l={...room,points:[{x:0,y:0},{x:50,y:0},{x:50,y:25},{x:30,y:25},{x:30,y:50},{x:0,y:50}]};
 approx(calc('m²',l),40);approx(calc('m',l),30);
