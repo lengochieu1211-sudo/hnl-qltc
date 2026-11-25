@@ -49,7 +49,7 @@ const floor = fs.readFileSync(new URL('../src/components/FloorPlanDefectTab.tsx'
 const types = fs.readFileSync(new URL('../src/types.ts', import.meta.url), 'utf8');
 assert.match(room, /data-hnl-room-highlight-advanced="true"/);
 assert.match(room, /getCategorySourceUnit\(catName\)/);
-assert.match(room, /volumeUnit: basicMeasuredRef\.current\[effectiveWorkCategory\]\?\.unit \|\| getCategorySourceUnit\(effectiveWorkCategory\)/);
+assert.match(room, /volumeUnit: getCategorySourceUnit\(effectiveWorkCategory\)/);
 assert.match(room, /showAdvancedHighlights, setShowAdvancedHighlights/);
 assert.match(room, /highlightVolumeMode === 'area'/);
 assert.match(room, /data-hnl-subitem-quantity/);
