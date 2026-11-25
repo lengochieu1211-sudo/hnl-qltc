@@ -72,7 +72,7 @@ import {
 import { UndoRedoControls } from './UndoRedoControls';
 import { FloorHighlightDirectDraw } from './FloorHighlightDirectDraw';
 import { FloorMetricCalibration } from './FloorMetricCalibration';
-import { ADVANCED_HIGHLIGHT_ENABLED, measureBasicRoomHighlight } from '../utils/roomHighlightBasicMetric';
+import { ADVANCED_HIGHLIGHT_ENABLED, measureBasicRoomHighlight, measureBasicRoomQuantitySource } from '../utils/roomHighlightBasicMetric';
 import { FloorHighlightCountPoints } from './FloorHighlightCountPoints';
 import type { HighlightCountSaveRequest } from '../utils/highlightCountPoints';
 import type { DirectHighlightCommitRequest } from '../utils/floorHighlightDirectShapes';
@@ -10706,7 +10706,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
         floorPlanImageUrl={activeFloor?.imageUrl}
         checklistItems={checklistItems}
         onSaveRoom={onSaveRoomProgress}
-        onMeasureBasicRoom={(room, unit) => {
+        onMeasureBasicRoom={(room, unit, source) => {
           const liveRoom = roomProgressList.find(item => item.id === room.id && !item.deletedAt);
           const sourceFloor = floorPlans.find(item => item.id === liveRoom?.floorId);
           if (!canManageStructure || !liveRoom || lockedRoomIds.has(liveRoom.id) ||
@@ -10719,8 +10719,9 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               !img?.complete || img.getAttribute('src') !== sourceFloor.imageUrl || !img.naturalWidth || !img.naturalHeight) {
             return { valid: false, reason: 'Chưa tải xong đúng ảnh mặt bằng của phòng.' };
           }
-          return measureBasicRoomHighlight({ floor: sourceFloor, room: liveRoom, unit,
-            image: { width: img.naturalWidth, height: img.naturalHeight } });
+          const image = { width: img.naturalWidth, height: img.naturalHeight };
+          return source ? measureBasicRoomQuantitySource({ floor: sourceFloor, room: liveRoom, source, image }) :
+            measureBasicRoomHighlight({ floor: sourceFloor, room: liveRoom, unit, image });
         }}
         onStartDrawOnMap={(room, category, target) => {
           if (!ADVANCED_HIGHLIGHT_ENABLED) return;
