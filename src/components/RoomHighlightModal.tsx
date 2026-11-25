@@ -1392,7 +1392,11 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
         delete formulaMeasuredRef.current[refKey];
         continue;
       }
-      const current = computeDraftFormula(measured.cat,measured.expression,measured.source,stage);
+      const priorStage=stage && roomItem?.subItems?.find(s=>s.id===stage.id);
+      const validationStage=stage && (stage.status==='Đã hoàn thành'||stage.inspectionStatus==='Đạt nghiệm thu') &&
+        (!priorStage || (priorStage.status!=='Đã hoàn thành'&&priorStage.inspectionStatus!=='Đạt nghiệm thu'))
+        ? {...stage,status:priorStage?.status||'Chưa làm',inspectionStatus:priorStage?.inspectionStatus||'Chưa nghiệm thu'} : stage;
+      const current = computeDraftFormula(measured.cat,measured.expression,measured.source,validationStage);
       const actual = stage ? stage.workVolume : categoryVolumes[measured.key];
       if (current.valid === false || current.unit !== measured.unit || current.value !== measured.value || actual !== measured.value || getCategoryInputKey(measured.cat) !== measured.key) {
         window.alert('Nguồn tính hoặc KL đã thay đổi. Hãy tính lại hoặc nhập tay trước khi lưu: '+(stage?.name || measured.cat));
@@ -2347,6 +2351,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                       const effectiveAfter = normalizeUnit(next === '__main__' ? getCategorySourceUnit(catName) : next);
                                       if (effectiveBefore !== effectiveAfter && !window.confirm('Đổi ĐVT không tự quy đổi KL đã lưu; chế độ tự tính hiện tại sẽ chuyển về nhập tay. Tiếp tục?')) return;
                                       roomDraftDirtyRef.current = true;
+                                      if(effectiveBefore!==effectiveAfter){delete formulaMeasuredRef.current['sub:'+item.id];setQuantityDrafts(prev=>({...prev,[formulaId(catName,item)]:{raw:item.workVolume===undefined?'':formatDecimal(item.workVolume),auto:false}}));}
                                       handleUpdateSubItem(item.id, {
                                         volumeUnit: next === '__main__' ? '' : next,
                                         ...(effectiveBefore !== effectiveAfter ? { highlightVolumeMode:'manual', highlightCountMode:'manual' } : {}),
@@ -2378,6 +2383,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                         const previous = normalizeUnit(item.volumeUnit || getCategorySourceUnit(catName));
                                         if (previous !== raw && !window.confirm('Đổi ĐVT không tự quy đổi KL đã lưu; chế độ tự tính sẽ chuyển về nhập tay. Tiếp tục?')) return;
                                         roomDraftDirtyRef.current = true;
+                                        if(previous!==raw){delete formulaMeasuredRef.current['sub:'+item.id];setQuantityDrafts(prev=>({...prev,[formulaId(catName,item)]:{raw:item.workVolume===undefined?'':formatDecimal(item.workVolume),auto:false}}));}
                                         handleUpdateSubItem(item.id, {volumeUnit:raw,
                                           ...(previous !== raw ? {highlightVolumeMode:'manual',highlightCountMode:'manual'} : {}) });
                                         setCustomUnitStageId(null);
