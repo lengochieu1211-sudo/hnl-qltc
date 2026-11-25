@@ -1,5 +1,5 @@
 import type { FloorPlan, RoomProgressItem, Point2D } from '../types';
-import { getValidFloorMetricCalibration, measureHighlightAreaM2, type MetricMeasure } from './highlightMetricGeometry.ts';
+import { getValidFloorMetricCalibration, measureHighlightAreaM2, measureHighlightLengthM, type MetricMeasure } from './highlightMetricGeometry.ts';
 
 // Temporary release gate: retain advanced data and implementation, hide advanced entry points.
 export const ADVANCED_HIGHLIGHT_ENABLED: boolean = false;
@@ -41,4 +41,26 @@ export function measureBasicRoomHighlight(args: {
   }
   const value = lengthPx * calibration.value.metresPerPixel;
   return Number.isFinite(value) && value > 0 ? { valid: true, value, unit: 'm' } : invalid('Chu vi không hợp lệ.');
+}
+
+/** Explicit source selection; output units are not used to guess the geometry. */
+export type BasicRoomQuantitySource = 'area' | 'perimeter' | 'length';
+export function measureBasicRoomQuantitySource(args: {
+  floor: FloorPlan; image: { width: number; height: number }; room: RoomProgressItem; source: BasicRoomQuantitySource;
+}): MetricMeasure {
+  const { floor, image, room, source } = args;
+  const invalid = (reason: string): MetricMeasure => ({ valid: false, reason });
+  if (source === 'area' || source === 'perimeter') {
+    return measureBasicRoomHighlight({ floor, image, room, unit: source === 'area' ? 'm²' : 'm' });
+  }
+  if (source !== 'length') return invalid('Nguồn đo không hợp lệ.');
+  if (room.floorId !== floor.id || room.deletedAt || room.positionLocked || room.inspectionStatus === 'Đạt nghiệm thu')
+    return invalid('Phòng không thuộc tầng này, đã khóa, đã xóa hoặc đã nghiệm thu.');
+  if (!room.isPolyline || !room.points || room.points.length < 2)
+    return invalid('Chiều dài L chỉ lấy từ tuyến Highlight hở.');
+  const first = room.points[0], last = room.points[room.points.length - 1];
+  if (!first || !last || (first.x === last.x && first.y === last.y))
+    return invalid('Tuyến hở không được trùng điểm đầu và cuối.');
+  const result = measureHighlightLengthM({ floor, image, floorPath: room.points });
+  return result.valid && (!Number.isFinite(result.value) || result.value <= 0) ? invalid('Chiều dài không hợp lệ.') : result;
 }
