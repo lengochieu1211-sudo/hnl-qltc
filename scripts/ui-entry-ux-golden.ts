@@ -947,3 +947,27 @@ assert(nestedConfig.includes('id="system-sync-card"\n          lazy\n          u
 assert(nestedAccordion.includes('unmountOnClose ? open : hasOpened') && nestedFeatureSheet.includes('approvedHistoryCloseRef'), 'Settings sheet must respect close guards including Android Back');
 const hostedGolden = read('scripts/dev-hosted-browser-golden.mjs');
 assert(hostedGolden.includes('Catalog all 5 nested Settings tabs') && hostedGolden.includes('seven Settings cards share one design system'), 'Hosted Settings Golden must cover all 7 sheets and 5 nested Catalog tabs');
+
+
+// Disclosure appearance: native pickers keep semantics; custom arrows follow actual state.
+assert(hnlThemeCss.includes('select:not([multiple]):is(:not([size]),[size="1"])') &&
+  hnlThemeCss.includes('--hnl-select-chevron:') &&
+  hnlThemeCss.includes('padding-inline-end: 28px !important') &&
+  hnlThemeCss.includes('@media (forced-colors: active)') &&
+  hnlThemeCss.includes('details[open] > summary.hnl-native-disclosure::after'),
+  'Native dropdowns and disclosure markers must have a consistent accessible chevron');
+for (const [file, states] of [
+  ['WarehouseTab.tsx', ['showMaterialStructureGroupPicker','showMaterialFloorPicker','showMaterialRoomPicker','showMaterialWorkCategoryPicker','showMaterialTeamPicker']],
+  ['WorkVolumeTab.tsx', ['showDetailStructureGroupPicker','showDetailFloorPicker','showDetailRoomPicker','showDetailTeamPicker']],
+  ['ExportPdfModal.tsx', ['showReportStructureGroupPicker','showReportFloorPicker','showReportRoomPicker','showReportTeamPicker']],
+] as const) {
+  const code = read('src/components/'+file);
+  for (const state of states) {
+    assert(code.includes('aria-expanded={'+state+'}') && code.includes('data-open={'+state+'} className="hnl-disclosure-chevron'),
+      file+': dropdown indicator must reflect '+state);
+  }
+}
+for (const file of ['FloorPlanDefectTab.tsx','FloorHighlightDirectDraw.tsx','WarehouseTab.tsx']) {
+  assert(!/[▼▾▸▲▴]/.test(read('src/components/'+file)), file+': no text triangle dropdown arrows');
+}
+console.log('Dropdown / disclosure visual Golden PASS');
