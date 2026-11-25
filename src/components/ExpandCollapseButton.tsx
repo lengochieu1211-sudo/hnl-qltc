@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { ChevronDown, ChevronUp, PackageSearch, X } from 'lucide-react';
+import { ChevronDown,
+  PackageSearch, X } from 'lucide-react';
 
 interface ExpandCollapseButtonProps {
   expanded: boolean;
@@ -182,7 +183,7 @@ export const ExpandCollapseButton: React.FC<ExpandCollapseButtonProps> = ({
       aria-expanded={expanded}
       aria-controls={controls}
     >
-      {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+      <ChevronDown data-open={expanded} className="hnl-disclosure-chevron h-3.5 w-3.5" aria-hidden="true" />
       {expanded ? collapseLabel : expandLabel}
     </button>
   );
