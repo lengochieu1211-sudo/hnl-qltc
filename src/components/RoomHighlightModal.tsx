@@ -759,7 +759,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     for (const [name, metric] of [['S','area'],['P','perimeter'],['L','length']] as const) {
       if (!names.includes(name)) continue;
       if (!roomItem?.id || !onMeasureBasicRoom) return fail('Cần lưu phòng và hiệu chuẩn mặt bằng trước.');
-      const measured = onMeasureBasicRoom(roomItem, metric === 'area' ? 'm²' : 'm', metric);
+      const actualMetric = metric === 'length' && !roomItem.isPolyline ? 'perimeter' : metric;
+      const measured = onMeasureBasicRoom(roomItem, metric === 'area' ? 'm²' : 'm', actualMetric);
       if (measured.valid === false) return fail(measured.reason);
       variables[name] = measured.value;
     }
@@ -781,6 +782,8 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
     const result = computeDraftFormula(cat,expression,source,stage);
     if (result.valid === false) return result.reason;
     const key = getCategoryInputKey(cat);
+    const previous = formulaMeasuredRef.current[stage ? 'sub:'+stage.id : 'main:'+cat];
+    if (previous?.expression === expression && previous.source === source && previous.unit === result.unit && previous.value === result.value && (stage ? stage.workVolume : categoryVolumes[key]) === result.value) return null;
     roomDraftDirtyRef.current = true;
     formulaMeasuredRef.current[stage ? 'sub:'+stage.id : 'main:'+cat] = {cat,...(stage ? {stageId:stage.id} : {}),expression,source,unit:result.unit,value:result.value,key};
     if (stage) {
@@ -2011,7 +2014,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                             title={`Đo vẽ khối lượng của hạng mục chính: ${catName}`}
                             className="shrink-0 border-l border-emerald-200 pl-1.5 text-[10px] font-extrabold text-indigo-700 hover:text-indigo-900 disabled:opacity-40">📐 Mặt bằng</button>}
 
-                          {!ADVANCED_HIGHLIGHT_ENABLED && !structureReadOnly && <RoomQuantityCalculator key={'main:'+catName} label={'hạng mục chính '+catName} disabled={quantityLocked} onCalculate={(expression,source)=>calculateDraftFormula(catName,expression,source)}/>}
+                          {!ADVANCED_HIGHLIGHT_ENABLED && !structureReadOnly && <RoomQuantityCalculator key={'main:'+catName} label={'hạng mục chính '+catName} disabled={quantityLocked} refreshKey={JSON.stringify([roomItem?.revision,roomItem?.updatedAt,getCategorySourceUnit(catName)])} onCalculate={(expression,source)=>calculateDraftFormula(catName,expression,source)}/>}
                           {!structureReadOnly && activeCategories.length > 1 && (
                             <MoveOrderControls
                               onMoveUp={() => handleMoveCategory(catName, 'up')}
@@ -2277,7 +2280,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                       else handleUpdateSubItem(item.id,{workVolume:value,highlightVolumeMode:'manual',highlightCountMode:'manual'});
                                     }} className="ml-1.5 w-24 rounded-lg border border-slate-200 bg-white px-2 py-1.5"/>
                                 </label>
-                                <RoomQuantityCalculator label={'hạng mục con '+item.name} allowParent disabled={quantityLocked || item.status==='Đã hoàn thành' || item.inspectionStatus==='Đạt nghiệm thu'} onCalculate={(expression,source)=>calculateDraftFormula(catName,expression,source,item)}/>
+                                <RoomQuantityCalculator label={'hạng mục con '+item.name} allowParent disabled={quantityLocked || item.status==='Đã hoàn thành' || item.inspectionStatus==='Đạt nghiệm thu'} refreshKey={JSON.stringify([roomItem?.revision,roomItem?.updatedAt,getCategoryVolume(catName),item.volumeUnit,getCategorySourceUnit(catName)])} onCalculate={(expression,source)=>calculateDraftFormula(catName,expression,source,item)}/>
                               </div>}
                               {/* ĐVT Cái: count positions are stored separately from m² highlights and Defects. */}
                               {!structureReadOnly && <div className="mt-3 pt-2 border-t border-slate-200 flex flex-wrap items-center gap-2 text-[10.5px]" data-hnl-sub-unit-spacing="true">
