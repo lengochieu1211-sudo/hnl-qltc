@@ -2055,7 +2055,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                             disabled={roomItem.inspectionStatus === 'Đạt nghiệm thu' || roomItem.positionLocked === true}
                             onClick={() => calculateBasicRoomQuantity(catName)}
                             title="Tính từ biên Highlight căn/phòng theo tỷ lệ đã lưu; chưa ghi dữ liệu"
-                            className="shrink-0 border-l border-emerald-200 pl-1.5 text-[10px] font-extrabold text-indigo-700 hover:text-indigo-900 disabled:opacity-40">📐 {getBasicMeasureUnit(catName) === 'm²' ? 'Tính diện tích' : 'Tính chu vi'}</button>}
+                            className="shrink-0 border-l border-emerald-200 pl-1.5 text-[10px] font-extrabold text-indigo-700 hover:text-indigo-900 disabled:opacity-40">{getBasicMeasureUnit(catName) === 'm²' ? 'Tính diện tích' : 'Tính chu vi'}</button>}
                           {ADVANCED_HIGHLIGHT_ENABLED && !structureReadOnly && roomItem?.id && onStartDrawOnMap && <button type="button" data-hnl-ui-only="true" data-hnl-main-quantity-map={catName}
                             disabled={roomItem.inspectionStatus === 'Đạt nghiệm thu' || roomItem.positionLocked === true}
                             onClick={() => {
