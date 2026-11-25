@@ -2269,7 +2269,7 @@ export const RoomHighlightModal: React.FC<RoomHighlightModalProps> = ({
                                   </button>}
                                 </>}
                               </div>}
-                              <div data-hnl-room-team-contact-row="true" className="flex min-w-0 flex-col gap-1.5 xl:flex-row xl:items-center">
+                              <div data-hnl-room-team-contact-row="true" className="mt-3 flex min-w-0 flex-col gap-1.5 md:mt-1.5 xl:mt-0 xl:flex-row xl:items-center">
                               <select
                                 value={item.assignedTeam || ''}
                                 onChange={(e) => handleUpdateSubItem(item.id, { assignedTeam: e.target.value })}
