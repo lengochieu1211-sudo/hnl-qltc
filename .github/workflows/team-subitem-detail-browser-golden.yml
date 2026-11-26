@@ -1,0 +1,37 @@
+name: HNL Team Subitem Detail UI and XLSX Golden
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'src/components/CrewTabBase.tsx'
+      - 'src/utils/teamUtils.ts'
+      - 'src/utils/excelExport.ts'
+      - 'scripts/team-subitem-detail-browser-golden.mjs'
+      - 'scripts/fixtures/team-subitem-detail/**'
+      - '.github/workflows/team-subitem-detail-browser-golden.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  team-subitem-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: |
+          npm install --no-save --package-lock=false playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Real CrewTab PC/touch names and single/all team Excel downloads
+        run: node scripts/team-subitem-detail-browser-golden.mjs
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-TEAM-SUBITEM-DETAIL-EVIDENCE
+          path: runtime-evidence/team-subitem-detail/
+          if-no-files-found: warn
+          retention-days: 30
