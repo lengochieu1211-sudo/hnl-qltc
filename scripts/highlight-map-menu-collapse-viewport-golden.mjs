@@ -75,8 +75,8 @@ assert.doesNotMatch(calibrationPanel, /bg-slate-950\/95|border-teal-400\/50|bg-t
 assert.match(calibrationPanel, /data-hnl-metric-calibration-close="true" aria-label="Đóng bảng Đo tỷ lệ"/);
 assert.match(calibrationPanel, /onClick=\{\(event\) => \{ event\.stopPropagation\(\); close\(\); \}\}/,
   'X button closes the two-point calibration panel without saving');
-assert.match(calibrationPanel, /const close = \(\) => \{ setActive\(false\); onActiveChange\?\.\(false\); setPoints\(\[\]\); setNotice\(''\); \};/,
-  'X button clears only unsaved points and notice');
+assert.match(calibrationPanel, /const close = \(\) => \{ setActive\(false\); onActiveChange\?\.\(false\); setPoints\(\[\]\); setDraftSource\(null\); setNotice\(''\); \};/,
+  'X button clears only unsaved points, source binding and notice');
 assert.match(calibrationPanel, /onSave\(floor\.id,draft\);\s*close\(\);/,
   'Existing saved calibration path is unchanged');
 assert.match(floor, /data-hnl-map-calibration-popover-close="true" aria-label="Đóng tùy chọn Đo tỷ lệ"/,
