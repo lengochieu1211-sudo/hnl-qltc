@@ -791,3 +791,33 @@ details[open] > summary.hnl-native-disclosure::after { transform: rotate(180deg)
 }
 :is([data-hnl-map-tools-collapsible], [data-hnl-map-calibration-inline], [data-hnl-map-display-inline]) > summary::marker { content: ''; }
 :is([data-hnl-map-tools-collapsible], [data-hnl-map-calibration-inline], [data-hnl-map-display-inline]) > summary::-webkit-details-marker { display: none; }
+
+/* Formula help: fine-pointer PC uses the native input tooltip, no extra row or button. */
+@media (hover: hover) and (pointer: fine) {
+  [data-hnl-quantity-calculator] .hnl-quantity-touch-help,
+  [data-hnl-quantity-calculator] .hnl-quantity-touch-help-note { display: none !important; }
+}
+
+/* Compact PC room editor: keep form fields aligned with their surrounding labels
+   in all three PC workspaces; do not resize touch controls or the map canvas. */
+@media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
+  html [data-hnl-pc-v32-window="room-editor"] [data-hnl-pc-v32-region="room-form"] {
+    font-size: 11px;
+  }
+  html [data-hnl-pc-v32-window="room-editor"] [data-hnl-pc-v32-region="room-form"] label {
+    font-size: 11px !important;
+    line-height: 1.4;
+  }
+  html [data-hnl-pc-v32-window="room-editor"] [data-hnl-pc-v32-region="room-form"] :is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="hidden"]),
+    select, textarea
+  ) {
+    font-size: 11px !important;
+    line-height: 1.4;
+    min-height: var(--hnl-room-control-min-height, 30px) !important;
+    padding-block: 5px !important;
+  }
+  html [data-hnl-pc-v32-window="room-editor"] [data-hnl-pc-v32-region="room-form"] textarea {
+    --hnl-room-control-min-height: 48px;
+  }
+}

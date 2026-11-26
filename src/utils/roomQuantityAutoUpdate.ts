@@ -1,4 +1,5 @@
-import type { FloorPlan, RoomProgressItem, RoomQuantityFormulaSetting, RoomSubItem, WorkVolume } from '../types';
+import type { FloorMetricCalibration, FloorPlan, RoomProgressItem, RoomQuantityFormulaSetting, RoomSubItem, WorkVolume } from '../types';
+import { getValidFloorMetricCalibration, floorMetricSourceKey } from './highlightMetricGeometry';
 import { measureBasicRoomQuantitySource } from './roomHighlightBasicMetric';
 import { evaluateRoomQuantityFormula, hasLinkedQuantityVariables, type QuantityVariables } from './roomQuantityFormula';
 import { normalizeUnit, areSameUnit, isHighlightLengthUnit } from './unitUtils';
@@ -100,4 +101,32 @@ export function recalculateLinkedRoomQuantities(room:RoomProgressItem,floor:Floo
   if(nextVolumes===volumes&&!subChanged)return room;
   return {...room,categoryVolumes:nextVolumes,quantityFormulaSettings:nextSettings,
     ...(nextWorkVolume!==undefined?{workVolume:nextWorkVolume}:{}),...(subChanged?{subItems:nextSubItems}: {})};
+}
+
+/** Read-only preview shared by the panel and the local mutation. Never a remote CAS. */
+export function previewFloorCalibrationQuantities(floor: FloorPlan, calibration: FloorMetricCalibration, rooms: RoomProgressItem[], catalog: WorkVolume[]) {
+  const nextFloor = {...floor, highlightMetricCalibration:calibration};
+  if (floor.deletedAt || floor.imageOfflineStale || !getValidFloorMetricCalibration(nextFloor,{width:calibration.sourceWidthPx,height:calibration.sourceHeightPx}).valid) return null;
+  const changedRooms = new Map<string,RoomProgressItem>();
+  const changes: {roomId:string;roomName:string;settingId:string;label:string;unit:string;before:number;after:number;revision:number;updatedAt:number}[] = [];
+  for (const room of rooms) {
+    if (room.floorId !== floor.id) continue;
+    const next = recalculateLinkedRoomQuantities(room,nextFloor,catalog);
+    if (next === room) continue;
+    changedRooms.set(room.id,next);
+    for (const [id, setting] of Object.entries(next.quantityFormulaSettings || {})) {
+      const before = room.quantityFormulaSettings?.[id];
+      if (!before || before.value === setting.value) continue;
+      const stage = id.startsWith('sub:') ? room.subItems?.find(s=>s.id===id.slice(4)) : undefined;
+      const category = catalog.find(v=>!v.deletedAt && 'id:'+(v.workCategoryId||v.id)===setting.categoryKey)?.title;
+      changes.push({roomId:room.id,roomName:room.roomName,settingId:id,
+        label:stage ? (stage.category || category || room.workCategory || '')+' / '+stage.name : category || room.workCategory || setting.categoryKey,
+        unit:setting.unit,before:before.value,after:setting.value,revision:Number(room.revision||0),updatedAt:room.updatedAt});
+    }
+  }
+  changes.sort((a,b)=>a.roomId===b.roomId ? (a.settingId<b.settingId?-1:a.settingId>b.settingId?1:0) : a.roomId<b.roomId?-1:1);
+  // Include exact changed room snapshots' quantity fields to reject a changed identity/storage alias.
+  const rows = [...changedRooms.entries()].sort(([a],[b])=>a<b?-1:a>b?1:0).map(([id,row])=>[id,row.workVolume,row.categoryVolumes,row.quantityFormulaSettings,row.subItems]);
+  const token = JSON.stringify([floorMetricSourceKey(floor),floor.revision??null,floor.updatedAt??null,floor.highlightMetricCalibration??null,calibration,changes,rows]);
+  return {changes,changedRooms,token};
 }

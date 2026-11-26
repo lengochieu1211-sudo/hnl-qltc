@@ -75,11 +75,12 @@ const security = read('src/components/SecurityModal.tsx');
 assert(security.includes('Tài khoản Google/Firebase'), 'Security Center must own Google/Firebase account entry');
 assert(security.includes('handleAccountSignIn'), 'Security Center sign-in handler missing');
 assert(security.includes('handleAccountSignOut'), 'Security Center sign-out handler missing');
-assert(security.includes('PIN được lưu theo dạng bảo mật một chiều'), 'PIN help text must explain one-way storage in plain Vietnamese.');
-assert(security.includes('Không có mã PIN chung hoặc PIN đặc biệt để mở khóa.'), 'PIN help text must clearly state there is no master/common PIN.');
+assert(!security.includes('PIN được lưu theo dạng bảo mật một chiều'), 'Settings PIN tab must omit the redundant paragraph.');
+assert(!security.includes('Không có mã PIN chung hoặc PIN đặc biệt để mở khóa.'), 'Settings PIN tab must remain compact.');
 assert(security.includes('Quên PIN? Đặt lại bằng Google'), 'PIN recovery copy must use the plain Google-account wording.');
 assert(!security.includes('Mã PIN chỉ dùng để khóa màn hình ứng dụng trên thiết bị và được băm 1 chiều PBKDF2 SHA-256.'), 'User-facing PIN help must not expose PBKDF2/SHA-256 jargon.');
 const appLockOverlay = read('src/components/AppLockOverlay.tsx');
+assert(appLockOverlay.includes('PIN được lưu theo dạng bảo mật một chiều') && appLockOverlay.includes('không có PIN chung để mở khóa'), 'Locked-screen security explanation remains unchanged.');
 assert(appLockOverlay.includes('Quên PIN? Đặt lại bằng Google'), 'Locked-screen PIN recovery must match Security Center wording.');
 assert(!appLockOverlay.includes('<span>Quên mã PIN? Đặt lại bằng Google Auth</span>'), 'Locked-screen PIN recovery must not expose Google Auth jargon.');
 

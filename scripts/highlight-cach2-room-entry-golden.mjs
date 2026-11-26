@@ -40,7 +40,7 @@ assert.match(draw, /onClick=\{\(\) => void confirmMeasuredQuantity\('area'\)\}/)
 assert.match(tab, /launch=\{metricCalibrationLaunch\}/);
 assert.match(calibration, /launch\?\.floorId === floor\.id/);
 assert.match(calibration, /onPointerDown=\{clickPoint\}/);
-assert.match(calibration, /onSave\(floor\.id,draft\)/);
+assert.match(calibration, /onSave\(floor\.id,draft,preview\.token\)/);
 // No new Firestore/production mutation code.
 assert.doesNotMatch(draw+calibration, /updateDoc\(|writeBatch\(|runTransaction\(|getFirestore\(/);
 assert.match(tab, /onStartCountOnMap=\{\(room, stageId\)/);

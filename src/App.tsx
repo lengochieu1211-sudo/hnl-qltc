@@ -162,7 +162,7 @@ import {
 import { canApplyDirectHighlightShapes, canApplyDirectHighlightQuantity } from './utils/floorHighlightDirectShapes';
 import type { DirectHighlightCommitRequest } from './utils/floorHighlightDirectShapes';
 import { floorMetricSourceKey } from './utils/highlightMetricGeometry';
-import { recalculateLinkedRoomQuantities } from './utils/roomQuantityAutoUpdate';
+import { recalculateLinkedRoomQuantities, previewFloorCalibrationQuantities } from './utils/roomQuantityAutoUpdate';
 import { GoogleAuthHeader } from './components/GoogleAuthHeader';
 import { OfflineSyncBanner } from './components/OfflineSyncBanner';
 import { ProjectManagerModal } from './components/ProjectManagerModal';
@@ -6851,9 +6851,15 @@ function AuthenticatedApp() {
     });
   };
 
-  const handleUpdateFloorPlan = (id: string, updates: Partial<FloorPlan>) => {
+  const handleUpdateFloorPlan = (id: string, updates: Partial<FloorPlan>, expectedPreviewToken?: string) => {
     if (!isProjectRoleResolved || !canManageFloorPlanStructure(currentUserRole)) return;
     updateAppData((prev) => {
+      const currentFloor = prev.floorPlans.find(fp=>fp.id===id);
+      const preview = updates.highlightMetricCalibration && currentFloor ? previewFloorCalibrationQuantities(currentFloor,updates.highlightMetricCalibration,prev.roomProgressList,prev.workVolumes) : null;
+      if (updates.highlightMetricCalibration && (!preview || !expectedPreviewToken || preview.token !== expectedPreviewToken)) {
+        window.setTimeout(()=>alert('Mặt bằng hoặc khối lượng đã thay đổi sau khi xem trước. Chưa lưu tỷ lệ hay khối lượng; hãy mở lại Đo tỷ lệ.'),0);
+        return prev;
+      }
       const floorPlans = prev.floorPlans.map((fp) => {
         if (fp.id !== id) return fp;
         // Cách 2: refuse a calibration prepared against an outdated floor image.
@@ -6868,10 +6874,9 @@ function AuthenticatedApp() {
       });
       const before=prev.floorPlans.find(fp=>fp.id===id), after=floorPlans.find(fp=>fp.id===id);
       const changedCalibration=!!updates.highlightMetricCalibration && before!==after && before?.highlightMetricCalibration!==after?.highlightMetricCalibration;
-      const roomProgressList=changedCalibration?prev.roomProgressList.map(room=>{
-        if(room.floorId!==id)return room;
-        const recalculated=recalculateLinkedRoomQuantities(room,after,prev.workVolumes);
-        return recalculated===room?room:{...recalculated,updatedAt:Math.max(Date.now(),room.updatedAt+1)};
+      const roomProgressList=changedCalibration && preview && preview.changedRooms.size>0 ? prev.roomProgressList.map(room=>{
+        const recalculated=preview.changedRooms.get(room.id);
+        return !recalculated || room.floorId!==id ? room : {...recalculated,updatedAt:Math.max(Date.now(),room.updatedAt+1)};
       }):prev.roomProgressList;
       return {...prev,floorPlans,roomProgressList};
     });

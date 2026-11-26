@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { FloorPlan, FloorMetricCalibration as FloorMetricCalibrationData, Point2D, RoomProgressItem } from '../types';
+import type { FloorPlan, FloorMetricCalibration as FloorMetricCalibrationData, Point2D, RoomProgressItem, WorkVolume } from '../types';
 import { mapDirectHighlightPointerToFloor } from '../utils/floorHighlightDirectShapes';
 import { findRoomObjectSnap } from '../utils/roomHighlightObjectSnap';
 import { applyCadDrawingGuide } from '../utils/roomHighlightCadShortcuts';
 import { createFloorMetricCalibration, getValidFloorMetricCalibration, floorMetricSourceKey } from '../utils/highlightMetricGeometry';
+import { previewFloorCalibrationQuantities } from '../utils/roomQuantityAutoUpdate';
 import { useFloorPlanToolPopover } from '../hooks/useFloorPlanToolPopover';
 
 interface Props {
@@ -15,8 +16,9 @@ interface Props {
   isFullscreen?: boolean;
   launch?: { floorId: string; token: number } | null;
   rooms: RoomProgressItem[];
+  workVolumes: WorkVolume[];
   canSave: boolean;
-  onSave: (floorId: string, calibration: FloorMetricCalibrationData) => void;
+  onSave: (floorId: string, calibration: FloorMetricCalibrationData, expectedPreviewToken: string) => void;
   onActiveChange?: (active: boolean) => void;
   /** Acknowledge a one-shot toolbar request before another tool can remount us. */
   onLaunchHandled?: (token: number) => void;
@@ -33,7 +35,7 @@ const floorPoint = (point: Point2D) => ({ x: Math.min(100,Math.max(0,point.x)), 
  * Saving may recalculate explicitly linked, editable quantities via the parent.
  */
 export const FloorMetricCalibration: React.FC<Props> = ({
-  floor, imageContainer, rotation, zoomScale, isFullscreen=false, launch, rooms, canSave, onSave, onActiveChange, onLaunchHandled,
+  floor, imageContainer, rotation, zoomScale, isFullscreen=false, launch, rooms, workVolumes, canSave, onSave, onActiveChange, onLaunchHandled,
   objectSnapEnabled, objectSnapMidpoints, cadGridSnap, cadOrtho, cadPolar,
 }) => {
   const [active, setActive] = useState(false);
@@ -56,6 +58,7 @@ export const FloorMetricCalibration: React.FC<Props> = ({
   const draft = imageReady && draftSource === sourceRevision && points.length === 2
     ? createFloorMetricCalibration(floor, dimensions, points[0], points[1], actualDistance)
     : null;
+  const preview = draft ? previewFloorCalibrationQuantities(floor,draft,rooms,workVolumes) : null;
   const close = () => { setActive(false); onActiveChange?.(false); setPoints([]); setDraftSource(null); setNotice(''); };
   useEffect(() => { close(); }, [floor.id]);
   useEffect(() => {
@@ -103,9 +106,9 @@ export const FloorMetricCalibration: React.FC<Props> = ({
     setNotice('');
   };
   const save = () => {
-    if (!canSave || !draft || !active || !imageReady || draftSource !== sourceRevision) { setNotice('Đoạn chuẩn hoặc số mét không hợp lệ.'); return; }
-    if (!window.confirm(`Lưu hiệu chuẩn ${actualDistance} m cho tầng “${floor.floorName}”? Khối lượng có công thức liên kết có thể tự cập nhật; số nhập tay và phần đã chốt được giữ nguyên. Tiếp tục?`)) return;
-    onSave(floor.id,draft);
+    if (!canSave || !draft || !preview || !active || !imageReady || draftSource !== sourceRevision) { setNotice('Đoạn chuẩn hoặc số mét không hợp lệ.'); return; }
+    if (!window.confirm(`Lưu hiệu chuẩn ${actualDistance} m cho tầng “${floor.floorName}”? Khối lượng có công thức liên kết có thể tự cập nhật: ${preview.changes.length} mục trong ${preview.changedRooms.size} phòng theo bảng xem trước. Số nhập tay và phần đã chốt được giữ nguyên. Tiếp tục?`)) return;
+    onSave(floor.id,draft,preview.token);
     close();
   };
   return <>
@@ -139,9 +142,16 @@ export const FloorMetricCalibration: React.FC<Props> = ({
               onChange={(e)=>setDistanceInput(e.target.value)} className="mt-1 w-full rounded-lg bg-white p-2 text-slate-900" />
           </label>
           {draft && <div className={isFullscreen ? 'text-emerald-200' : 'text-emerald-700'}>Tỷ lệ dự kiến: {draft.metresPerPixel.toLocaleString('vi-VN',{maximumFractionDigits:6})} m/px</div>}
+          {preview && <div data-hnl-calibration-quantity-preview="true" className="border rounded p-1.5 space-y-1">
+            <div className="font-bold">KL dự kiến: {preview.changes.length} mục / {preview.changedRooms.size} phòng</div>
+            {preview.changes.length === 0 ? <div>Không có khối lượng liên kết thay đổi.</div> : <div className="max-h-40 overflow-y-auto overscroll-contain space-y-1" tabIndex={0} aria-label="Danh sách khối lượng dự kiến thay đổi">
+              {preview.changes.map(change=><div key={JSON.stringify([change.roomId,change.settingId])} className="border-t pt-1 break-words"><div className="font-medium">{change.roomName || change.roomId} · {change.label}</div><div>{change.before.toLocaleString('vi-VN',{maximumFractionDigits:2})} → {change.after.toLocaleString('vi-VN',{maximumFractionDigits:2})} {change.unit}</div></div>)}
+            </div>}
+            <div>Chỉ là dự kiến trên dữ liệu hiện có; xác nhận sẽ gửi lưu theo cơ chế đồng bộ hiện tại.</div>
+          </div>}
           {notice && <div className={isFullscreen ? 'text-amber-200' : 'text-amber-700'}>{notice}</div>}
           <div className="flex gap-2">
-            <button type="button" disabled={!draft} onClick={save} className="bg-emerald-700 text-white disabled:opacity-50 rounded-lg px-2 py-1.5 font-bold">Xác nhận lưu tỷ lệ</button>
+            <button type="button" disabled={!draft || !preview} onClick={save} className="bg-emerald-700 text-white disabled:opacity-50 rounded-lg px-2 py-1.5 font-bold">Xác nhận lưu tỷ lệ</button>
             <button type="button" onClick={()=>setPoints([])} className={`rounded-lg px-2 py-1.5 ${isFullscreen ? 'bg-slate-700 text-slate-100' : 'bg-slate-100 text-slate-700'}`}>Chọn lại</button>
           </div>
         </div>}
