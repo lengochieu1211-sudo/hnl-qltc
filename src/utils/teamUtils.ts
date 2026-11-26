@@ -198,6 +198,26 @@ export interface FloorGroupDetail {
   >;
 }
 
+/** Read-only per-stage quantities; never used in parent allocation or aggregate totals. */
+export interface TeamSubItemDetail {
+  roomId: string;
+  roomName: string;
+  floorId: string;
+  floorName: string;
+  teamId: string;
+  teamName: string;
+  workCategoryId?: string;
+  workCategoryName: string;
+  parentUnit: string;
+  subItemId: string;
+  name: string;
+  quantity: number | null;
+  unit: string;
+  status: RoomSubItem['status'];
+  inspectionStatus: NonNullable<RoomSubItem['inspectionStatus']>;
+  targetDate: string;
+}
+
 export interface TeamStatistics {
   team: TeamInfo;
   teamRooms: RoomProgressItem[];
@@ -221,6 +241,7 @@ export interface TeamStatistics {
   categoryBreakdown: TeamCategoryBreakdown[];
   floorGroupMap: Record<string, FloorGroupDetail>;
   teamRoomDetails: TeamRoomDetail[];
+  teamSubItemDetails?: TeamSubItemDetail[];
 }
 
 export function isTeamWorkCompletedInRoom(
@@ -260,6 +281,12 @@ export function calculateTeamStatistics(params: {
   const resolvedRoomFloorName = (room: RoomProgressItem): string =>
     room.floorName || floorNameById.get(room.floorId) || '';
 
+  // A durable team ID is authoritative for the new detail view. Name/leader
+  // fallback is only safe when exactly one current team matches.
+  const uniqueLegacyTeam = (name?: string): string | undefined => {
+    const matches = teams.filter(t => isTeamMatch(name,t));
+    return matches.length === 1 ? matches[0].id : undefined;
+  };
   teams.forEach((team) => {
     const activeRooms = roomProgressList.filter((room) => room.deletedAt === undefined || room.deletedAt === null);
     const assignmentsByRoom = new Map<string, TeamCategoryAssignment[]>();
@@ -279,6 +306,7 @@ export function calculateTeamStatistics(params: {
     const completedVolumeByUnit: Record<string, number> = {};
     const floorGroupMap: Record<string, FloorGroupDetail> = {};
     const teamRoomDetails: TeamRoomDetail[] = [];
+    const teamSubItemDetails: TeamSubItemDetail[] = [];
 
     teamRooms.forEach((room) => {
       const fp = floorPlans.find((floor) => floor.id === room.floorId);
@@ -305,11 +333,29 @@ export function calculateTeamStatistics(params: {
       let roomBoard = 0;
       let roomInspected = 0;
       const assignments = assignmentsByRoom.get(room.id) || [];
+      const stageIdCounts = new Map<string, number>();
+      for (const sub of room.subItems || []) stageIdCounts.set(sub.id,(stageIdCounts.get(sub.id)||0)+1);
+      const seenStageIds = new Set<string>();
 
       assignments.forEach((assignment) => {
         const { allSubItems, teamSubItems } = assignment;
         const catTotal = Math.max(0, Number(assignment.totalVolume) || 0);
         const unit = normalizeUnit(assignment.unit || '') || assignment.unit || 'm²';
+        // Reuse canonical category assignment, but fail closed on conflicting
+        // explicit team IDs, ambiguous legacy names or duplicate stage IDs.
+        for (const sub of teamSubItems) {
+          const ownerId = sub.teamId || (sub.assignedTeam ? uniqueLegacyTeam(sub.assignedTeam) : room.teamId || uniqueLegacyTeam(room.assignedTeam));
+          if (ownerId !== team.id || !sub.id || stageIdCounts.get(sub.id)!==1 || seenStageIds.has(sub.id)) continue;
+          seenStageIds.add(sub.id);
+          const quantity = typeof sub.workVolume === 'number' && Number.isFinite(sub.workVolume) && sub.workVolume >= 0 ? sub.workVolume : null;
+          teamSubItemDetails.push({
+            roomId: room.id, roomName: room.roomName, floorId: room.floorId || fp?.id || '', floorName,
+            teamId: team.id, teamName: team.name,
+            workCategoryId: assignment.workCategoryId, workCategoryName: assignment.name, parentUnit: unit,
+            subItemId: sub.id, name: sub.name, quantity, unit: normalizeUnit(sub.volumeUnit) || unit,
+            status: sub.status || 'Chưa làm', inspectionStatus: sub.inspectionStatus || 'Chưa nghiệm thu', targetDate: sub.targetDate || '',
+          });
+        }
         let assigned = assignment.isMain ? catTotal : 0;
         if (allSubItems.length > 0) {
           const totalWeight = allSubItems.reduce((sum, sub) => sum + getSubItemGroupWeight(allSubItems, sub), 0);
@@ -503,6 +549,7 @@ export function calculateTeamStatistics(params: {
       categoryBreakdown,
       floorGroupMap,
       teamRoomDetails,
+      teamSubItemDetails,
     };
   });
 

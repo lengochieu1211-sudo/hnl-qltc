@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 import { InventoryItem, WorkVolume, DefectItem, ChecklistItem, FloorPlan, RoomProgressItem, MaterialNorm, CrewRecord, TeamInfo } from '../types';
 import { getDefectOverdueInfo } from './defectUtils';
-import { isTeamMatch, calculateTeamStatistics } from './teamUtils';
+import { isTeamMatch, calculateTeamStatistics, type TeamSubItemDetail } from './teamUtils';
 import { computeTeamMaterialReconciliation } from './teamMaterialReconciliation';
 import { computeTeamEquipmentIssues, computeUnassignedTeamEquipmentIssues } from './teamEquipmentIssues';
 import { calculateStockSummary, resolveNormMaterialId } from './inventoryUtils';
@@ -1144,6 +1144,22 @@ function appendTeamEquipmentExcelSheets(
   XLSX.utils.book_append_sheet(wb, wsVouchers, '08-Lịch sử cấp thiết bị');
 }
 
+/** Read-only detail sheet. Keep the existing 01–08 sheets and their aggregates unchanged. */
+export function appendTeamSubItemExcelSheet(wb: XLSX.WorkBook, details: TeamSubItemDetail[]) {
+  const headers = ['STT','__teamId','__floorId','__roomId','__workCategoryId','__subItemId','Đội Thi Công','Tầng','Phòng/Khu Vực','Hạng Mục Chính','Hạng Mục Con','Khối Lượng Con','ĐVT','Tiến Độ','Nghiệm Thu','Hạn Hoàn Thành'];
+  const rows = details.map((d,idx) => ({
+    'STT':idx+1, '__teamId':d.teamId, '__floorId':d.floorId, '__roomId':d.roomId,
+    '__workCategoryId':d.workCategoryId || '', '__subItemId':d.subItemId,
+    'Đội Thi Công':d.teamName, 'Tầng':d.floorName, 'Phòng/Khu Vực':d.roomName,
+    'Hạng Mục Chính':d.workCategoryName, 'Hạng Mục Con':d.name,
+    'Khối Lượng Con':d.quantity ?? '', 'ĐVT':d.unit, 'Tiến Độ':d.status,
+    'Nghiệm Thu':d.inspectionStatus, 'Hạn Hoàn Thành':d.targetDate || '',
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows,{header:headers});
+  autoFitColumns(ws);
+  XLSX.utils.book_append_sheet(wb, ws, '09-Chi tiết hạng mục con');
+}
+
 export function exportTeamStatisticsToExcel(params: {
   teams: TeamInfo[];
   roomProgressList: RoomProgressItem[];
@@ -1362,6 +1378,7 @@ export function exportTeamStatisticsToExcel(params: {
     autoFitColumns(ws6);
     XLSX.utils.book_append_sheet(wb, ws6, '06-Vật tư đối chiếu');
     appendTeamEquipmentExcelSheets(wb, [team], params.equipmentInventory || params.inventory || [], false);
+    appendTeamSubItemExcelSheet(wb, stat.teamSubItemDetails || []);
 
     const safeProj = projectNameStr.replace(/[^a-zA-Z0-9_ -]/g, '');
     const safeTeam = team.name.replace(/[^a-zA-Z0-9_ -]/g, '');
@@ -1601,6 +1618,7 @@ export function exportTeamStatisticsToExcel(params: {
   autoFitColumns(wsMaterials);
   XLSX.utils.book_append_sheet(wb, wsMaterials, '06-Vật tư đối chiếu');
   appendTeamEquipmentExcelSheets(wb, activeTeams, params.equipmentInventory || params.inventory || [], true);
+  appendTeamSubItemExcelSheet(wb, activeTeams.flatMap(team => teamStatsMap[team.id]?.teamSubItemDetails || []));
 
   const safeName = projectNameStr.replace(/[^a-zA-Z0-9_ -]/g, '');
   return saveWorkbookFile(wb, `Thong_Ke_Doi_Thi_Cong_${safeName}_${Date.now()}.xlsx`);
