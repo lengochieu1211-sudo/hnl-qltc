@@ -193,8 +193,8 @@ const pcRoomBlock=pcRoomCss.slice(pcRoomCss.indexOf('/* Compact PC room editor:'
 assert.ok(pcRoomBlock.includes('@media (min-width: 1024px) and (hover: hover) and (pointer: fine)'));
 assert.ok(pcRoomBlock.includes('[data-hnl-pc-v32-window="room-editor"] [data-hnl-pc-v32-region="room-form"]'));
 assert.ok(pcRoomBlock.includes('font-size: 11px !important'));
-assert.ok(pcRoomBlock.includes('min-height: 30px !important'));
-assert.ok(pcRoomBlock.includes('min-height: 48px !important'));
+assert.ok(pcRoomBlock.includes('min-height: var(--hnl-room-control-min-height, 30px) !important'));
+assert.ok(pcRoomBlock.includes('--hnl-room-control-min-height: 48px'));
 assert.ok(pcRoomBlock.includes(':not([type="range"])'));
 const pinUi=fs.readFileSync('src/components/SecurityModal.tsx','utf8');
 assert.ok(!pinUi.includes('PIN được lưu theo dạng bảo mật một chiều. Không có mã PIN chung hoặc PIN đặc biệt để mở khóa.'));

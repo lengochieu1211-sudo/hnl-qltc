@@ -814,10 +814,10 @@ details[open] > summary.hnl-native-disclosure::after { transform: rotate(180deg)
   ) {
     font-size: 11px !important;
     line-height: 1.4;
-    min-height: 30px !important;
+    min-height: var(--hnl-room-control-min-height, 30px) !important;
     padding-block: 5px !important;
   }
   html [data-hnl-pc-v32-window="room-editor"] [data-hnl-pc-v32-region="room-form"] textarea {
-    min-height: 48px !important;
+    --hnl-room-control-min-height: 48px;
   }
 }
