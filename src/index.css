@@ -791,3 +791,9 @@ details[open] > summary.hnl-native-disclosure::after { transform: rotate(180deg)
 }
 :is([data-hnl-map-tools-collapsible], [data-hnl-map-calibration-inline], [data-hnl-map-display-inline]) > summary::marker { content: ''; }
 :is([data-hnl-map-tools-collapsible], [data-hnl-map-calibration-inline], [data-hnl-map-display-inline]) > summary::-webkit-details-marker { display: none; }
+
+/* Formula help: fine-pointer PC uses the native input tooltip, no extra row or button. */
+@media (hover: hover) and (pointer: fine) {
+  [data-hnl-quantity-calculator] .hnl-quantity-touch-help,
+  [data-hnl-quantity-calculator] .hnl-quantity-touch-help-note { display: none !important; }
+}
