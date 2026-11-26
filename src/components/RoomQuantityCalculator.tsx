@@ -35,7 +35,7 @@ export function RoomQuantityCalculator({label,raw,result,auto,error,disabled,all
       onChange={e=>onEdit(e.target.value)}
       className={'w-24 min-w-0 rounded-lg border bg-white px-1.5 py-1 text-center font-black text-xs text-emerald-950 '+(error?'border-rose-400':'border-emerald-300')}/>
     {unit && <span className="shrink-0 whitespace-nowrap font-black text-emerald-800">{unit}</span>}
-    <button type="button" title={help} aria-label={'Hướng dẫn công thức '+label} aria-expanded={showHelp}
+    <button type="button" data-hnl-ui-only="true" title={help} aria-label={'Hướng dẫn công thức '+label} aria-expanded={showHelp}
       onClick={()=>setShowHelp(v=>!v)}
       className="hnl-quantity-touch-help inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[11px] font-bold text-slate-600 hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-indigo-500">?</button>
     {error && <span role="alert" className="basis-full text-rose-700">{error}</span>}

@@ -158,6 +158,7 @@ assert.match(modal,/data-hnl-sub-team-group/);
 assert.match(ui,/<ExpressionDisplayInput[^>]*title=\{help\}/);
 assert.match(ui,/hnl-quantity-touch-help inline-flex/);
 assert.match(ui,/hnl-quantity-touch-help-note basis-full/);
+assert.match(ui,/data-hnl-ui-only="true" title=\{help\}/);
 const helpCss=fs.readFileSync('src/index.css','utf8');
 assert.match(helpCss,/@media \(hover: hover\) and \(pointer: fine\) \{\s*\[data-hnl-quantity-calculator\] \.hnl-quantity-touch-help,\s*\[data-hnl-quantity-calculator\] \.hnl-quantity-touch-help-note \{ display: none !important; \}/);
 assert.match(ui,/KL: Khối lượng hạng mục chính/);
@@ -186,3 +187,15 @@ for(const state of ['showFloorProgressPanel','roomExpanded','showHighlightColorL
   assert.ok(floorUi.includes('aria-expanded={'+state+'}'));
 }
 console.log('Scoped Highlight compact and nested disclosure Golden PASS');
+
+const pcRoomCss=fs.readFileSync('src/index.css','utf8');
+const pcRoomBlock=pcRoomCss.slice(pcRoomCss.indexOf('/* Compact PC room editor:'));
+assert.ok(pcRoomBlock.includes('@media (min-width: 1024px) and (hover: hover) and (pointer: fine)'));
+assert.ok(pcRoomBlock.includes('[data-hnl-pc-v32-window="room-editor"] [data-hnl-pc-v32-region="room-form"]'));
+assert.ok(pcRoomBlock.includes('font-size: 11px !important'));
+assert.ok(pcRoomBlock.includes('min-height: 30px !important'));
+assert.ok(pcRoomBlock.includes('min-height: 48px !important'));
+assert.ok(pcRoomBlock.includes(':not([type="range"])'));
+const pinUi=fs.readFileSync('src/components/SecurityModal.tsx','utf8');
+assert.ok(!pinUi.includes('PIN được lưu theo dạng bảo mật một chiều. Không có mã PIN chung hoặc PIN đặc biệt để mở khóa.'));
+assert.ok(pinUi.includes('<span>Quên PIN? Đặt lại bằng Google</span>'));
