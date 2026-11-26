@@ -26,6 +26,10 @@ export const CrewTab: React.FC<CrewTabProps> = (props) => {
   return (
     <CrewTabBase
       {...props}
+      onSaveCrewLogWithTeam={props.onSaveCrewLogWithTeam ? ((record, editing) => {
+        const next = prepare(record);
+        return next ? props.onSaveCrewLogWithTeam!(next, editing) : false;
+      }) : undefined}
       onAddCrewRecord={(record) => {
         const next = prepare(record);
         if (next) props.onAddCrewRecord(next);

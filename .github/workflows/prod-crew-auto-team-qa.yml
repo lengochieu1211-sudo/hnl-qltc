@@ -1,0 +1,72 @@
+name: HNL PROD Crew Auto Team Scoped QA (NO DEPLOY)
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/lib/crewAutoTeamCloud.ts'
+      - 'src/components/CrewTabBase.tsx'
+      - 'scripts/crew-auto-team-browser-golden.mjs'
+      - 'scripts/fixtures/crew-auto-team/**'
+      - '.github/workflows/prod-crew-auto-team-qa.yml'
+permissions:
+  contents: read
+jobs:
+  scoped-qa:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify scope and archive PROD before any merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=ad2df144f597d7e054a6f7aebd3abd6d6f7247f3
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$BASE"
+          git merge-base --is-ancestor "$BASE" HEAD
+          mkdir -p runtime-evidence/prod-crew-auto-team
+          OUT=runtime-evidence/prod-crew-auto-team
+          git diff --name-only "$BASE" HEAD | LC_ALL=C sort > "$OUT/changed-files.txt"
+          printf '%s\n' '.github/workflows/prod-crew-auto-team-qa.yml' 'scripts/crew-auto-team-browser-golden.mjs' 'scripts/firebase-rules-behavior.mjs' 'scripts/fixtures/crew-auto-team/index.html' 'scripts/fixtures/crew-auto-team/main.tsx' 'scripts/team-directory-integrity-golden.ts' 'src/App.tsx' 'src/components/CrewTab.tsx' 'src/components/CrewTabBase.tsx' 'src/lib/crewAutoTeamCloud.ts' 'src/lib/firebaseBase.ts' 'src/utils/teamDirectoryIntegrity.ts' | LC_ALL=C sort > "$OUT/expected-files.txt"
+          cmp "$OUT/changed-files.txt" "$OUT/expected-files.txt"
+          for f in .firebaserc firebase.prod.json firestore.rules storage.rules package.json package-lock.json .github/workflows/hnl-prod-hosting-auto.yml; do test "$(git rev-parse "$BASE:$f")" = "$(git rev-parse "HEAD:$f")"; done
+          if git ls-tree -r --name-only HEAD | grep -Ei '(^|/)(\.env$|.*service-account.*\.json$|id_rsa$)|\.(p12|pfx|keystore)$'; then exit 1; fi
+          git archive --format=zip -o "$OUT/PROD-BEFORE-FULL-SOURCE.zip" "$BASE"
+          git archive --format=zip -o "$OUT/PROD-CANDIDATE-FULL-SOURCE.zip" HEAD
+          mapfile -t FILES < "$OUT/changed-files.txt"
+          git archive --format=zip -o "$OUT/PROD-CANDIDATE-PATCH.zip" HEAD -- "${FILES[@]}"
+          for f in "$OUT"/*.zip; do unzip -tq "$f"; done
+          curl -fsSL --retry 3 "https://hnlqltc.web.app/sw-assets.json?qa=$GITHUB_RUN_ID" -o "$OUT/previous-live-manifest.json"
+          node -e "const m=require('./runtime-evidence/prod-crew-auto-team/previous-live-manifest.json');if(m.version!=='6.3.0'||!String(m.buildId).startsWith('44877821376-'))throw Error('PROD live baseline differs');if(!Array.isArray(m.assets)||!m.assets.length)throw Error('Missing assets');"
+          curl -fsSL --retry 3 "https://hnlqltc.web.app/?qa=$GITHUB_RUN_ID" -o "$OUT/previous-live.html"
+          ASSET=$(node -e "const s=require('fs').readFileSync(process.argv[1],'utf8');process.stdout.write(s.match(/src=\"(\/assets\/[^\" ]+\.js)\"/)?.[1]||'')" "$OUT/previous-live.html")
+          test -n "$ASSET"
+          curl -fsSL --retry 3 "https://hnlqltc.web.app$ASSET" -o "$RUNNER_TEMP/previous-live.js"
+          grep -Fq "$BASE" "$RUNNER_TEMP/previous-live.js"
+          sha256sum "$RUNNER_TEMP/previous-live.js" | cut -d' ' -f1 > "$OUT/previous-live-js.sha256"
+          printf '%s\n' "BASE=$BASE" "CANDIDATE=$(git rev-parse HEAD)" 'PROD scope: auto-create team only; no cloud writes in this QA' > "$OUT/REPORT.txt"
+          (cd "$OUT"; sha256sum *.zip *.json *.html *.txt *.sha256 > SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HNL-PROD-CREW-AUTO-TEAM-BEFORE-CANDIDATE
+          path: runtime-evidence/prod-crew-auto-team/
+          retention-days: 30
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save --package-lock=false playwright@1.55.0
+      - run: npx playwright install --with-deps chromium
+      - name: Real form + authenticated local Firestore emulator on PC and touch
+        run: npx --yes firebase-tools@13.35.1 emulators:exec --config firebase.rules-ci.json --only auth,firestore --project demo-hnl-qltc-rules "node scripts/crew-auto-team-browser-golden.mjs"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-PROD-CREW-AUTO-TEAM-BROWSER
+          path: runtime-evidence/crew-auto-team/
+          if-no-files-found: warn
+          retention-days: 30
