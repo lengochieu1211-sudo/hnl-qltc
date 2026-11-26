@@ -50,7 +50,7 @@ import type { RoomProgressItem, FloorPlan, CrewRecord, TeamInfo } from '../types
 import { crewAutoTeamId, normalizeTeamDirectoryName } from '../utils/teamDirectoryIntegrity';
 import { commitCrewAutoTeamPair } from './crewAutoTeamCloud';
 import type { DirectHighlightCommitRequest } from '../utils/floorHighlightDirectShapes';
-import { canApplyDirectHighlightShapes, canApplyDirectHighlightQuantity, withDirectHighlightShapes, withDirectHighlightQuantity } from '../utils/floorHighlightDirectShapes';
+import { canApplyDirectHighlightShapes, canApplyDirectHighlightQuantity, withDirectHighlightShapes, withDirectHighlightQuantity, verifyDirectHighlightMeasurement, isDirectPrimaryCategory } from '../utils/floorHighlightDirectShapes';
 import { floorMetricSourceKey } from '../utils/highlightMetricGeometry';
 const env = (import.meta as any).env || {};
 const p21DemoWriterGates = {
@@ -2251,6 +2251,7 @@ export async function commitDirectHighlightCas(projectId: string, request: Direc
           calibration.floorId !== latestFloor.id) {
         throw new Error('Ảnh hoặc hiệu chuẩn mặt bằng đã thay đổi trên thiết bị khác. Cần đo lại; chưa cập nhật khối lượng.');
       }
+      if (!verifyDirectHighlightMeasurement(current,latestFloor,quantityRequest)) throw new Error('Kết quả đo không khớp hình học, tỷ lệ hoặc nguồn khối lượng. Chưa lưu.');
     }
     const next = quantityRequest ? withDirectHighlightQuantity(current, quantityRequest) : current;
     const changed = request.shapes ? withDirectHighlightShapes(next, request.category, request.target, request.shapes) : next;
@@ -2269,7 +2270,7 @@ export async function commitDirectHighlightCas(projectId: string, request: Direc
       if (request.target === 'main') {
         fields.categoryVolumes = changed.categoryVolumes;
         fields.categoryHighlightAutoMode = changed.categoryHighlightAutoMode;
-        if (current.workCategory === request.category) fields.workVolume = changed.workVolume;
+        if (isDirectPrimaryCategory(current,request.category)) fields.workVolume = changed.workVolume;
       }
       else fields.subItems = changed.subItems;
     }

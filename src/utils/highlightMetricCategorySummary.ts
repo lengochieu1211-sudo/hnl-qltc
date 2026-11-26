@@ -5,7 +5,7 @@
  */
 import type { FloorPlan, HighlightRegionShape, RoomProgressItem, WorkVolume } from '../types';
 import { measureHighlightAreaM2, getValidFloorMetricCalibration } from './highlightMetricGeometry.ts';
-import { getSavedDirectHighlightShapes, getDirectHighlightCategoryNames, getDirectStageCategory } from './floorHighlightDirectShapes.ts';
+import { getSavedDirectHighlightShapes, getDirectHighlightCategoryNames, getDirectStageCategory, measureDirectHighlightArea, isDirectPrimaryCategory } from './floorHighlightDirectShapes.ts';
 
 export type CalibratedHighlightRow = {
   id: string;
@@ -35,14 +35,14 @@ export function getCalibratedHighlightRows(
   for (const category of getDirectHighlightCategoryNames(room)) {
     const item = catalog.find(v => v.id === category || v.title === category);
     const categoryName = item?.title || category;
-    const unit = room.categoryVolumeUnits?.[category] || (room.workCategory === category ? room.volumeUnit : undefined) || item?.unit || 'm²';
+    const unit = room.categoryVolumeUnits?.[category] || (isDirectPrimaryCategory(room,category) ? room.volumeUnit : undefined) || item?.unit || '';
     const mainShapes = getSavedDirectHighlightShapes(room, category, 'main');
     const mainSource: CalibratedHighlightRow['source'] = mainShapes.length ? 'own' : 'room';
     const mainRegion = mainShapes.length ? mainShapes : WHOLE_ROOM;
     const mainMeasure = measureHighlightAreaM2({ floor, image, room, shapes: mainRegion });
     rows.push({
       id: `${category}:main`, category, target: 'main', categoryName, label: 'Hạng mục chính',
-      savedQuantity: room.categoryVolumes?.[category] ?? (room.workCategory === category ? room.workVolume : undefined),
+      savedQuantity: room.categoryVolumes?.[category] ?? (isDirectPrimaryCategory(room,category) ? room.workVolume : undefined),
       storedUnit: unit, areaM2: mainMeasure.valid ? rounded(mainMeasure.value) : null,
       source: mainSource, autoPolicy: room.categoryHighlightAutoMode?.[category] === true,
       ...(!isAreaUnit(unit) ? { warning: `ĐVT ${unit}: diện tích chỉ tham khảo, không tự quy đổi.` } : {}),
@@ -53,10 +53,7 @@ export function getCalibratedHighlightRows(
       const source: CalibratedHighlightRow['source'] = ownShapes.length ? 'own' : mainShapes.length ? 'main' : 'room';
       // An empty child inherits the main zone, as in RoomHighlightModal, but is
       // not an additional quantity to add to the main category.
-      const area = measureHighlightAreaM2({ floor, image, room,
-        shapes: ownShapes.length ? ownShapes : mainRegion,
-        ...(ownShapes.length && mainShapes.length ? { clipToMain: mainShapes } : {}),
-      });
+      const area = measureDirectHighlightArea(floor,image,room,category,stage.id,ownShapes.length ? ownShapes : mainRegion);
       const storedUnit = stage.volumeUnit || unit;
       rows.push({
         id: `${category}:${stage.id}`, category, target: stage.id, categoryName,

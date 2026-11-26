@@ -68,7 +68,9 @@ export interface HighlightCountSaveRequest {
 export const canSaveHighlightCount = (room: RoomProgressItem | undefined, request: HighlightCountSaveRequest): boolean => {
   if (!room || room.id!==request.roomId || room.deletedAt || room.positionLocked || room.isPolyline || room.subItemProgressMigrated) return false;
   if (room.updatedAt!==request.expectedUpdatedAt || room.revision!==request.expectedRevision || room.inspectionStatus==='Đạt nghiệm thu') return false;
-  const stage=room.subItems?.find(x=>x.id===request.stageId);
+  const matches=room.subItems?.filter(x=>x.id===request.stageId)||[];
+  if(matches.length!==1 || room.quantityFormulaSettings?.['sub:'+request.stageId])return false;
+  const stage=matches[0];
   if (!stage || !isCountStage(stage,room) || stage.status==='Đã hoàn thành' || stage.inspectionStatus==='Đạt nghiệm thu') return false;
   if (!['manual','points'].includes(request.mode) || !['main','own','none'].includes(request.regionMode)) return false;
   if (!validCountPoints(room,request.points)) return false;

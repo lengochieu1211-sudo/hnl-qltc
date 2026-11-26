@@ -1,5 +1,6 @@
 /** Pure room geometry-stage selectors. No mutations, Firebase calls, ID or quantity changes. */
-import type { HighlightRegionShape, Point2D, RoomProgressItem } from '../types';
+import type { FloorPlan, HighlightRegionShape, Point2D, RoomProgressItem } from '../types';
+import { floorMetricSourceKey, getValidFloorMetricCalibration, measureHighlightAreaM2, measureHighlightLengthM, measureWallAreaM2, type MetricMeasure } from './highlightMetricGeometry.ts';
 import { isHighlightLengthUnit } from './unitUtils.ts';
 import { findRoomObjectSnap } from './roomHighlightObjectSnap.ts';
 import { applyCadDrawingGuide } from './roomHighlightCadShortcuts.ts';
@@ -12,11 +13,21 @@ export const getDirectStageCategory = (stage: { category?: string }, room: Pick<
  * An empty child unit means "Theo ĐVT chính", NEVER an implicit m² conversion.
  * Unknown secondary-category units fail closed until saved in the room form.
  */
+export const isDirectPrimaryCategory = (room: RoomProgressItem, category: string): boolean =>
+  category === room.workCategory || (!!room.workCategoryId && category === room.workCategoryId);
+
+// A stage with explicit identity must not be linked by a conflicting display name.
+// Without a catalog in the room transaction, unknown aliases fail closed.
+const directStageMatches = (room: RoomProgressItem, category: string, stage: NonNullable<RoomProgressItem['subItems']>[number]): boolean =>
+  stage.workCategoryId
+    ? category === stage.workCategoryId || (category === room.workCategory && room.workCategoryId === stage.workCategoryId)
+    : getDirectStageCategory(stage,room) === category;
+
 export const getDirectHighlightEffectiveUnit = (
   room: RoomProgressItem, category: string, target: string,
 ): string => {
   const categoryUnit = String(room.categoryVolumeUnits?.[category] ||
-    (room.workCategory === category ? room.volumeUnit || 'm²' : '')).trim();
+    (isDirectPrimaryCategory(room, category) ? room.volumeUnit || '' : '')).trim();
   if (target === 'main') return categoryUnit;
   const stage = room.subItems?.find(item => item.id === target && getDirectStageCategory(item, room) === category);
   if (!stage) return '';
@@ -118,6 +129,9 @@ export interface DirectHighlightSaveRequest {
 /** Explicit user-approved quantity write. No automatic calculation may use this path. */
 export interface DirectHighlightQuantitySaveRequest extends Omit<DirectHighlightSaveRequest, 'shapes'> {
   measuredQuantity: { value: number; unit: 'm' | 'm²' };
+  /** Required at the authoritative commit boundary; old callers fail closed. */
+  measurement?: { kind:'area' } | { kind:'length'; path:Point2D[] } |
+    { kind:'wall'; path:Point2D[]; height:number; faces:number; openingsM2:number };
   /** Bind measurement to the already-saved, same-source floor calibration. */
   floorId: string;
   expectedFloorSourceKey: string;
@@ -134,8 +148,10 @@ const isEditableDirectTarget = (room: RoomProgressItem | undefined, request: Omi
   if (room.positionLocked === true || room.inspectionStatus === 'Đạt nghiệm thu') return false;
   if (request.target === 'total' || !getDirectHighlightCategoryNames(room).includes(request.category)) return false;
   if (request.target !== 'main') {
-    const stage = room.subItems?.find((item) => item.id === request.target && getDirectStageCategory(item, room) === request.category);
-    if (!stage || stage.status === 'Đã hoàn thành' || stage.inspectionStatus === 'Đạt nghiệm thu') return false;
+    const stages = room.subItems?.filter(item=>item.id===request.target) || [];
+    const stage = stages[0];
+    if (stages.length!==1 || !stage || !directStageMatches(room,request.category,stage) ||
+        getDirectStageCategory(stage,room)!==request.category || stage.status === 'Đã hoàn thành' || stage.inspectionStatus === 'Đạt nghiệm thu') return false;
   }
   return true;
 };
@@ -189,17 +205,61 @@ export function canApplyDirectHighlightQuantity(room: RoomProgressItem | undefin
       request.shapes.length > 24 || !request.shapes.every(validateHighlightShape))) return false;
   // Never pair an open line measurement with geometry from an unrelated polygon draft.
   if (request.measuredQuantity.unit === 'm' && request.shapes !== undefined) return false;
+  // A separate explicit source change is needed before overwriting a formula.
+  // Block main changes when a linked child may depend on it; do not guess aliases.
+  const settings = room.quantityFormulaSettings || {};
+  if (request.target === 'main') {
+    if (Object.entries(settings).some(([key,setting]) => key.startsWith('main:') || (key.startsWith('sub:') && setting.auto && /\bKL\b/i.test(setting.expression)))) return false;
+    if (room.workCategoryId && room.workCategory && room.workCategory!==room.workCategoryId &&
+        Object.prototype.hasOwnProperty.call(room.categoryVolumes||{},room.workCategory) &&
+        Object.prototype.hasOwnProperty.call(room.categoryVolumes||{},room.workCategoryId) &&
+        isDirectPrimaryCategory(room,request.category)) return false;
+  } else if (settings['sub:'+request.target]) return false;
   // The exact legacy formula is reapplied at the next room form save. Never
   // accept an incompatible direct quantity and quietly destroy that linkage.
   if (!isDirectMetricConsistentWithExistingAuto(room, request)) return false;
   return true;
 }
 
+/** One shared clipped area for summary, preview and the commit. Empty draft
+ * inherits the saved main region; whole-room fallback is display only. */
+export function measureDirectHighlightArea(floor: FloorPlan, image:{width:number;height:number}, room:RoomProgressItem, category:string, target:string, shapes:HighlightRegionShape[]):MetricMeasure {
+  const main = getSavedDirectHighlightShapes(room,category,'main');
+  return measureHighlightAreaM2({floor,image,room,shapes,
+    ...(target!=='main' && main.length ? {clipToMain:main} : {})});
+}
+
+/** Recompute from latest transaction room/floor and the actual measurement inputs.
+ * This is an integrity guard in the SDK transaction, not a replacement for Rules. */
+export function verifyDirectHighlightMeasurement(room:RoomProgressItem,floor:FloorPlan,request:DirectHighlightQuantitySaveRequest):boolean {
+  if(!canApplyDirectHighlightQuantity(room,request) || floor.deletedAt || floor.id!==room.floorId ||
+    floorMetricSourceKey(floor)!==request.expectedFloorSourceKey ||
+    floor.highlightMetricCalibration?.updatedAt!==request.expectedCalibrationUpdatedAt) return false;
+  const c=floor.highlightMetricCalibration;
+  if(!c || !request.measurement) return false;
+  const image={width:c.sourceWidthPx,height:c.sourceHeightPx};
+  if(!getValidFloorMetricCalibration(floor,image).valid) return false;
+  const evidence=request.measurement;
+  let result:MetricMeasure;
+  if(evidence.kind==='area'){
+    const shapes=request.shapes || getSavedDirectHighlightShapes(room,request.category,request.target);
+    if(!shapes.length || shapes.length>24 || !shapes.every(validateHighlightShape))return false;
+    result=measureDirectHighlightArea(floor,image,room,request.category,request.target,shapes);
+  } else if(evidence.kind==='length'||evidence.kind==='wall'){
+    if(request.shapes!==undefined)return false;
+    const line=measureHighlightLengthM({floor,image,floorPath:evidence.path});
+    if(!line.valid)return false;
+    result=evidence.kind==='length'?line:measureWallAreaM2(line.value,evidence.height,evidence.faces,evidence.openingsM2);
+  } else return false;
+  return result.valid && result.unit===request.measuredQuantity.unit &&
+    Math.round(result.value*1000)/1000===request.measuredQuantity.value;
+}
+
 /** Patch ONLY the selected official quantity, preserving sibling subItems and accepted data. */
 export function withDirectHighlightQuantity(room: RoomProgressItem, request: DirectHighlightQuantitySaveRequest): RoomProgressItem {
   if (request.target === 'main') return {
     ...room, categoryVolumes: { ...room.categoryVolumes, [request.category]: request.measuredQuantity.value },
-    ...(room.workCategory === request.category ? { workVolume: request.measuredQuantity.value } : {}),
+    ...(isDirectPrimaryCategory(room, request.category) ? { workVolume: request.measuredQuantity.value } : {}),
     // Keep existing shared-total/auto policy. Manual changes are deliberate
     // room-form actions, not side-effects of measuring a region.
   };
