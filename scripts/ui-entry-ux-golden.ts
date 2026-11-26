@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { shouldShowOwnerRecovery, type OwnerRecoverySnapshot } from '../src/utils/ownerRecoveryVisibility';
 import { buildCrewReportMatrices, buildCrewReportRows, buildCrewReportText } from '../src/utils/crewReportUtils';
 import { catalogOrderRank, reorderVisibleCatalogItems } from '../src/utils/catalogDisplayOrder';
 
@@ -991,3 +992,26 @@ for(const file of ['ExportPdfModal.tsx','PrimaryDriveStatusCard.tsx']) assert(
   read('src/components/'+file).includes('hnl-disclosure-chevron h-4 w-4 text-slate-500 group-open:rotate-180'),
   file+': deep native summary must rotate without changing label layout');
 console.log('Nested dropdown / disclosure source audit PASS');
+
+const recoveryUser = { uid: 'uid-current', email: 'owner@example.test' };
+const orphan: OwnerRecoverySnapshot = { projectId: 'P1', ...recoveryUser, info: { allowed:false, role:'VIEWER', isCloudSynced:false, isOwner:false, verification:'verified' } };
+const showRecovery = (snapshot:OwnerRecoverySnapshot|null=orphan, pid='P1', user:typeof recoveryUser|null=recoveryUser, online=true, checking=false) => shouldShowOwnerRecovery(snapshot,pid,user,online,checking);
+assert(showRecovery(), 'Verified missing/unowned root retains recovery path');
+assert(!showRecovery(null), 'Unverified initial state must hide recovery');
+assert(!showRecovery(orphan,'P1',recoveryUser,true,true), 'Loading must hide recovery');
+assert(!showRecovery(orphan,'P1',recoveryUser,false), 'Offline must hide recovery');
+assert(!showRecovery(orphan,'P2'), 'Different project must hide stale recovery');
+assert(!showRecovery(orphan,'P1',{...recoveryUser,uid:'uid-changed'}), 'Different account must hide stale recovery');
+assert(!showRecovery(orphan,'P1',null), 'Signed out must hide recovery');
+assert(!showRecovery({...orphan,info:{...orphan.info,verification:'unavailable'}}), 'Unavailable cloud must hide recovery');
+assert(!showRecovery({...orphan,info:{...orphan.info,projectDeleted:true}}), 'Deleted project must hide recovery');
+for(const role of ['ADMIN','EDITOR','VIEWER'] as const) assert(!showRecovery({...orphan,info:{...orphan.info,allowed:true,role,isCloudSynced:true}}), 'Assigned '+role+' must hide recovery');
+assert(!showRecovery({...orphan,info:{...orphan.info,isCloudSynced:true}}), 'Inactive member must hide recovery');
+assert(!showRecovery({...orphan,info:{...orphan.info,ownerUid:'uid-other'}}), 'Other owner UID without email must hide recovery');
+assert(!showRecovery({...orphan,info:{...orphan.info,ownerEmail:'other@example.test'}}), 'Other owner email must hide recovery');
+const emailOwner:OwnerRecoverySnapshot={...orphan,info:{allowed:true,role:'ADMIN',isCloudSynced:true,isOwner:true,ownerEmail:'OWNER@example.test',ownerUid:'uid-old',verification:'verified'}};
+assert(showRecovery(emailOwner), 'Verified matching owner email with old UID can recover');
+assert(!showRecovery({...emailOwner,info:{...emailOwner.info,ownerUid:recoveryUser.uid}}), 'Normal verified owner must hide recovery');
+assert(security.includes('shouldShowOwnerRecovery(') && security.includes('setOwnerRecoverySnapshot(null)') && security.includes("info.verification === 'verified'"), 'Recovery must depend on scoped verified snapshot');
+assert(security.includes('Khôi phục quyền chủ dự án') && !security.includes('Xác minh lại quyền chủ dự án:'), 'Recovery copy must be concise');
+console.log('OWNER RECOVERY VISIBILITY GOLDEN PASS');
