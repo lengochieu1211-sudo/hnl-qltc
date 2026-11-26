@@ -4075,7 +4075,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                                   <div data-hnl-team-category-row="true" className="flex flex-wrap justify-between items-start gap-x-2 gap-y-1 min-w-0 text-[11px] font-bold text-slate-800">
                                                     <span className="min-w-0 flex-[1_1_160px] font-semibold text-slate-700 flex items-start gap-1.5">
                                                       <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0"></span>
-                                                      <span className="min-w-0 break-words [overflow-wrap:anywhere]" title={c.name}>{c.name}</span>
+                                                      <span className="min-w-0 [overflow-wrap:anywhere]" style={{overflowWrap:"anywhere"}} title={c.name}>{c.name}</span>
                                                     </span>
                                                     <span className="shrink-0 ml-auto whitespace-nowrap bg-slate-50 text-slate-600 text-[10px] px-1.5 py-0.5 rounded font-medium border border-slate-200/40">
                                                       {formatDecimal(c.vol)} {c.unit}
@@ -4117,7 +4117,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
 
                                                             return (
                                                               <div key={sub.subItemId} data-hnl-team-subitem-row="true" className="flex flex-wrap justify-between items-start min-w-0 gap-x-2 gap-y-1 py-0.5 border-b border-dashed border-slate-100/60 last:border-0 hover:bg-slate-50/50 transition">
-                                                                <span className="min-w-0 flex-[1_1_130px] break-words [overflow-wrap:anywhere] font-medium" title={sub.name}>• {sub.name}</span>
+                                                                <span className="min-w-0 flex-[1_1_130px] [overflow-wrap:anywhere] font-medium" style={{overflowWrap:"anywhere"}} title={sub.name}>• {sub.name}</span>
                                                                 <div className="flex flex-wrap justify-end items-center gap-1 ml-auto min-w-0 max-w-full">
                                                                   <span data-hnl-team-subitem-quantity="true" className="font-semibold text-emerald-700 whitespace-nowrap tabular-nums" title={sub.quantity === null ? 'Chưa nhập khối lượng' : undefined}>{sub.quantity === null ? '—' : formatDecimal(sub.quantity)} {sub.unit}</span>
                                                                   <span className={`px-1.5 py-0.2 rounded text-[9px] ${statusColorStr}`}>{statusTextStr}</span>

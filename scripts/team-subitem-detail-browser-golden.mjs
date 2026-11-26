@@ -59,6 +59,7 @@ try{
   assert.equal(await modal.locator('[data-hnl-team-subitem-row="true"]').count(),12,label+': all own stages');
   assert.equal(await modal.locator('[data-hnl-team-subitem-quantity="true"]').count(),12);
   assert(!(await modal.innerText()).includes('Công đoạn đội khác'),label+': other team stage leaked');
+  await main.scrollIntoViewIfNeeded();await page.screenshot({path:folder+'/'+label+'-before-check.png'});
   for(const name of [mainName,stageTitle]){
     const metrics=await name.evaluate(el=>{const s=getComputedStyle(el);return {textOverflow:s.textOverflow,overflowWrap:s.overflowWrap,scroll:el.scrollWidth,width:el.clientWidth};});
     assert.equal(metrics.overflowWrap,'anywhere',label+': long name wrap');
@@ -73,7 +74,7 @@ try{
   }
   await main.scrollIntoViewIfNeeded();await page.screenshot({path:folder+'/'+label+'.png'});
   await readDownload(page,page.getByTitle('Tải báo cáo Excel thống kê chi tiết cho đội thi công này'),label+'-single',12);
-  await page.getByRole('button',{name:/^Đóng$/}).last().click();
+  await page.getByTitle('Đóng',{exact:true}).click();
   await page.getByRole('button',{name:/Quản lý dữ liệu|^Dữ liệu$/}).first().click();
   await readDownload(page,page.getByText('Báo cáo chi tiết tất cả đội',{exact:true}),label+'-all',13);
   checks.push({viewport:label,names:'PASS',quantities:'PASS',singleExcel:'PASS',allExcel:'PASS'});await ctx.close();
