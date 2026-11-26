@@ -94,3 +94,8 @@ assert.match(crewSource,/\[isActive, editingRecord, showAddLogModal, floorPlans,
 const crewWrapper=(await import('node:fs')).readFileSync('src/components/CrewTab.tsx','utf8');
 assert.match(crewWrapper,/onSaveCrewLogWithTeam=\{props.onSaveCrewLogWithTeam/);
 console.log('CREW AUTO TEAM PLAN GOLDEN PASS');
+
+assert.match(appSource,/crewAutoTeamEpochAtSchedule===crewAutoTeamCloudEpochRef.current/);
+assert.match(appSource,/crewAutoTeamCloudBusyRef.current=true/);
+assert.match(appSource,/Number\(original.revision\|\|0\)!==Number\(record.revision\|\|0\)/);
+assert.match(crewSource,/if \(!canOperate \|\| crewSaveBusyRef.current\) return/);

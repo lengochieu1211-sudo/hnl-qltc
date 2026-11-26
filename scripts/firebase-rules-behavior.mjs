@@ -929,10 +929,12 @@ try {
   connectAuthEmulator(pairAuth,'http://127.0.0.1:9099',{disableWarnings:true});
   connectFirestoreEmulator(pairDb,'127.0.0.1',8080);
   try {
-    await signInWithEmailAndPassword(pairAuth,ownerEmail,password);
+    const secondAdminEmail='crew-pair-admin-'+nonce+'@example.test';
+    const secondAdmin=await createUserWithEmailAndPassword(pairAuth,secondAdminEmail,password);
+    await setDoc(doc(db,'projects',pid,'members',secondAdminEmail),{email:secondAdminEmail,role:'ADMIN',active:true,assignedAt:Date.now()});
     const pairTime=Date.now(), pairTeam={id:'TEAM-AUTO-PAIR',name:'Đội Pair',leader:'A',defaultCount:7,createdAt:pairTime,createdByUid:ownerUid,updatedAt:pairTime,revision:1,deleted:false,deletedAt:null};
     const pairLog=(id,team=pairTeam)=>({id,teamId:team.id,teamName:team.name,leaderName:team.leader,date:'2026-11-26',workerCount:7,taskDescription:'',createdAt:pairTime,createdByUid:ownerUid,updatedAt:pairTime,revision:1,deleted:false,deletedAt:null});
-    const pairResults=await Promise.allSettled([commitCrewAutoTeamPair(db,pid,pairTeam,pairLog('CREW-PAIR-A')),commitCrewAutoTeamPair(pairDb,pid,pairTeam,pairLog('CREW-PAIR-B'))]);
+    const pairResults=await Promise.allSettled([commitCrewAutoTeamPair(db,pid,pairTeam,pairLog('CREW-PAIR-A')),commitCrewAutoTeamPair(pairDb,pid,{...pairTeam,createdByUid:secondAdmin.user.uid},{...pairLog('CREW-PAIR-B'),createdByUid:secondAdmin.user.uid})]);
     assert.equal(pairResults.filter(x=>x.status==='fulfilled').length,1);
     assert.equal((await getDocsFromServer(collection(db,'projects',pid,'teams'))).docs.filter(s=>s.id===pairTeam.id).length,1);
     const pairLogs=(await getDocsFromServer(collection(db,'projects',pid,'crew_records'))).docs.filter(s=>s.id==='CREW-PAIR-A'||s.id==='CREW-PAIR-B');
@@ -940,6 +942,8 @@ try {
     const deniedTeam={...pairTeam,id:'TEAM-AUTO-DENIED',name:'Đội Denied'};
     await signIn(editorEmail);
     await expectDenied('EDITOR cannot create team through atomic crew pair',()=>commitCrewAutoTeamPair(db,pid,deniedTeam,pairLog('CREW-PAIR-DENIED',deniedTeam)));
+    await signIn(viewerEmail);
+    await expectDenied('VIEWER cannot create team through atomic crew pair',()=>commitCrewAutoTeamPair(db,pid,deniedTeam,pairLog('CREW-PAIR-DENIED',deniedTeam)));
     await signIn(ownerEmail);
     assert.equal((await getDoc(doc(db,'projects',pid,'teams',deniedTeam.id))).exists(),false);
     assert.equal((await getDoc(doc(db,'projects',pid,'crew_records','CREW-PAIR-DENIED'))).exists(),false);

@@ -1419,7 +1419,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       crewSaveBusyRef.current = true;
       setCrewSaveBusy(true);
       try {
-        if (!await onSaveCrewLogWithTeam({...recordData,teamId:teamId || undefined,id:editingRecord?.id || activeLogEntityId},!!editingRecord)) return;
+        if (!await onSaveCrewLogWithTeam({...recordData,teamId:teamId || undefined,id:editingRecord?.id || activeLogEntityId,...(editingRecord?{revision:editingRecord.revision,updatedAt:editingRecord.updatedAt}:{})},!!editingRecord)) return;
       } catch (error) {
         alert(error instanceof Error ? error.message : String(error));
         return;
