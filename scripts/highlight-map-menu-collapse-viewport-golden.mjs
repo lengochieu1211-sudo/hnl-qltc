@@ -77,7 +77,7 @@ assert.match(calibrationPanel, /onClick=\{\(event\) => \{ event\.stopPropagation
   'X button closes the two-point calibration panel without saving');
 assert.match(calibrationPanel, /const close = \(\) => \{ setActive\(false\); onActiveChange\?\.\(false\); setPoints\(\[\]\); setDraftSource\(null\); setNotice\(''\); \};/,
   'X button clears only unsaved points, source binding and notice');
-assert.match(calibrationPanel, /onSave\(floor\.id,draft\);\s*close\(\);/,
+assert.match(calibrationPanel, /onSave\(floor\.id,draft,preview\.token\);\s*close\(\);/,
   'Existing saved calibration path is unchanged');
 assert.match(floor, /data-hnl-map-calibration-popover-close="true" aria-label="Đóng tùy chọn Đo tỷ lệ"/,
   'Normal inline calibration dropdown has its own X button');
@@ -96,7 +96,7 @@ assert(floor.includes('!(isFullscreen && showFullscreenDisplaySettings) && (sele
 // When measuring, X is the only cancel/close control; retain retry after an inactive notice.
 assert.doesNotMatch(calibrationPanel, /Hủy đo/, 'No redundant cancel button in calibration panel');
 assert.match(calibrationPanel, /\{canSave && !active && <button type="button" onClick=\{open\}[\s\S]*?>Chọn 2 điểm<\/button>/, 'Retry only when inactive and authorized');
-assert.match(calibrationPanel, /disabled=\{!draft\} onClick=\{save\}[^>]*>Xác nhận lưu tỷ lệ<\/button>/);
+assert.match(calibrationPanel, /disabled=\{!draft \|\| !preview\} onClick=\{save\}[^>]*>Xác nhận lưu tỷ lệ<\/button>/);
 assert.match(calibrationPanel, /onClick=\{\(\)=>setPoints\(\[\]\)\}[^>]*>Chọn lại<\/button>/);
 assert.match(calibrationPanel, /event\.key === 'Escape'\) close\(\)/);
 console.log('PASS: single X cancel, authorized inactive retry, reselect/save and Escape retained');

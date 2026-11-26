@@ -359,7 +359,7 @@ interface FloorPlanDefectTabProps {
   quickEditEnabled?: boolean;
   onAddInventory?: (item: Omit<InventoryItem, 'id'> & { id?: string }) => void;
   onAddFloorPlan: (plan: Omit<FloorPlan, 'id'> & { id?: string }) => void;
-  onUpdateFloorPlan?: (id: string, updates: Partial<FloorPlan>) => void;
+  onUpdateFloorPlan?: (id: string, updates: Partial<FloorPlan>, expectedPreviewToken?: string) => void;
   onUpdateFloorPlanImage?: (id: string, imageUrl: string) => void | Promise<void>;
   onUpdateFloorPlanImages?: (ids: string[], imageUrl: string) => number | Promise<number>;
   onUseExistingFloorPlanAsset?: (targetFloorId: string, sourceFloorId: string) => void | Promise<void>;
@@ -8313,6 +8313,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
               <FloorMetricCalibration
                 key={`${currentProjectId}:${activeFloor.id}`} floor={activeFloor}
                 imageContainer={imageContainerRef.current} rotation={rotation} zoomScale={zoomScale} launch={metricCalibrationLaunch} rooms={floorRooms}
+                workVolumes={workVolumes}
                 isFullscreen={isFullscreen}
                 canSave={canManageStructure}
                 onLaunchHandled={(token) => setMetricCalibrationLaunch((launch) => launch?.token === token ? null : launch)}
@@ -8320,7 +8321,7 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                   setIsMetricCalibrating(active);
                   if (!active) setMetricCalibrationLaunch(null);
                 }}
-                onSave={(floorId, calibration)=>onUpdateFloorPlan(floorId,{highlightMetricCalibration:calibration})}
+                onSave={(floorId, calibration, expectedPreviewToken)=>onUpdateFloorPlan(floorId,{highlightMetricCalibration:calibration},expectedPreviewToken)}
                 objectSnapEnabled={objectSnapEnabled} objectSnapMidpoints={objectSnapMidpoints}
                 cadGridSnap={cadGridSnap} cadOrtho={cadOrtho} cadPolar={cadPolar}
               />)}
