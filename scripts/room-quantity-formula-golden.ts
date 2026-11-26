@@ -199,3 +199,6 @@ assert.ok(pcRoomBlock.includes(':not([type="range"])'));
 const pinUi=fs.readFileSync('src/components/SecurityModal.tsx','utf8');
 assert.ok(!pinUi.includes('PIN được lưu theo dạng bảo mật một chiều. Không có mã PIN chung hoặc PIN đặc biệt để mở khóa.'));
 assert.ok(pinUi.includes('<span>Quên PIN? Đặt lại bằng Google</span>'));
+
+const conflictingStage={...resized,subItems:resized.subItems?.map(s=>s.id==='sub1'?{...s,workCategoryId:'other-cat'}:s)};
+assert.equal(recalculateLinkedRoomQuantities(conflictingStage,floor,catalog).subItems?.[0].workVolume,16,'explicit different ID must not recalculate by title');

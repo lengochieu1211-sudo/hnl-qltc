@@ -3,8 +3,8 @@ import { createPortal } from 'react-dom';
 import { ChevronDown } from 'lucide-react';
 import { isHighlightLengthUnit } from '../utils/unitUtils';
 import type { FloorPlan, HighlightRegionShape, Point2D, RoomProgressItem, WorkVolume } from '../types';
-import { getValidFloorMetricCalibration, measureHighlightAreaM2, measureHighlightLengthM, measureWallAreaM2 } from '../utils/highlightMetricGeometry';
-import { getDirectStageCategory, getSavedDirectHighlightShapes, getDirectHighlightCategoryNames, getDirectHighlightEffectiveUnit, resolveDirectHighlightLaunchCategory, mapDirectHighlightPointerToFloor, getDirectHighlightDrawPoint } from '../utils/floorHighlightDirectShapes';
+import { getValidFloorMetricCalibration, measureHighlightLengthM, measureWallAreaM2 } from '../utils/highlightMetricGeometry';
+import { getDirectStageCategory, getSavedDirectHighlightShapes, getDirectHighlightCategoryNames, getDirectHighlightEffectiveUnit, resolveDirectHighlightLaunchCategory, mapDirectHighlightPointerToFloor, getDirectHighlightDrawPoint, measureDirectHighlightArea, isDirectPrimaryCategory } from '../utils/floorHighlightDirectShapes';
 import { mainHighlightColorKey, childHighlightColorKey } from '../utils/highlightCategoryColors';
 import { getCalibratedHighlightRows } from '../utils/highlightMetricCategorySummary.ts';
 import { useFloorPlanToolPopover } from '../hooks/useFloorPlanToolPopover';
@@ -153,10 +153,9 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
       : getSavedDirectHighlightShapes(room, currentCategory, currentTarget);
     return sub.length ? sub : getSavedDirectHighlightShapes(room, currentCategory, 'main');
   }, [room, currentCategory, currentTarget, targetStage?.id, candidateShapes]);
-  const metricPreview = useMemo(() => floor ? measureHighlightAreaM2({
-    floor, image: imageDimensions, room, shapes: measuredRegion,
-  }) : { valid: false as const, reason: 'Chưa chọn mặt bằng.' },
-  [floor, imageDimensions.width, imageDimensions.height, room, measuredRegion]);
+  const metricPreview = useMemo(() => floor ? measureDirectHighlightArea(floor,imageDimensions,room,currentCategory,currentTarget,measuredRegion)
+    : { valid: false as const, reason: 'Chưa chọn mặt bằng.' },
+  [floor, imageDimensions.width, imageDimensions.height, room, measuredRegion,currentCategory,currentTarget]);
   // Calculate all existing main/stage areas from the approved floor calibration,
   // without cloud writes and without recategorizing any manually entered quantities.
   const calibratedRows = useMemo(() => getCalibratedHighlightRows(room, floor, imageDimensions, workVolumes),
@@ -169,7 +168,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
   const unitLabel = activeUnit || 'Chưa xác định ĐVT';
   const inheritedRegion = Boolean(targetStage && oldShapes.length === 0 && draft.length === 0);
   const savedQuantity = currentTarget === 'main'
-    ? room.categoryVolumes?.[currentCategory] ?? (room.workCategory === currentCategory ? room.workVolume : undefined)
+    ? room.categoryVolumes?.[currentCategory] ?? (isDirectPrimaryCategory(room,currentCategory) ? room.workVolume : undefined)
     : targetStage?.workVolume;
   const autoByKey = currentTarget === 'main' ? room.categoryHighlightAutoMode?.[currentCategory] === true : targetStage?.highlightVolumeMode === 'area';
   const autoByDisplayAlias = currentTarget === 'main' && currentCategory !== displayCategory && room.categoryHighlightAutoMode?.[displayCategory] === true;
@@ -385,6 +384,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
       floorId: floor.id, expectedFloorSourceKey: calibration.value.sourceKey,
       expectedCalibrationUpdatedAt: calibration.value.updatedAt,
       measuredQuantity: {value, unit},
+      measurement: kind === 'area' ? {kind:'area'} : kind === 'length' ? {kind:'length',path:measurePath.map(p=>({...p}))} : {kind:'wall',path:measurePath.map(p=>({...p})),height:Number(wallHeight.replace(',','.')),faces:Number(wallFaces),openingsM2:Number(wallOpenings.replace(',','.'))},
       ...(kind === 'area' && draft.length ? {shapes: candidateShapes} : {}),
     };
     setSaving(true); setNotice('Đang đối chiếu phiên bản phòng và hiệu chuẩn trên Firestore...');
@@ -392,7 +392,7 @@ export const FloorHighlightDirectDraw: React.FC<Props> = ({
       await onSaveShapes(request);
       closeAfterServerAck();
     } catch (error) {
-      setNotice(`Chưa cập nhật KL: ${error instanceof Error ? error.message : String(error)}. Nếu hạng mục đang dùng vùng tổng tự tính, hãy kiểm tra lại nguồn vùng tổng trong Căn/Phòng; không tự đổi sang nhập tay. Bản nháp và KL cũ giữ nguyên.`);
+      setNotice(`Chưa cập nhật KL: ${error instanceof Error ? error.message : String(error)}. Nếu hạng mục đang dùng công thức hoặc vùng tổng tự tính, hãy kiểm tra nguồn trong Căn/Phòng; không tự đổi sang nhập tay. Bản nháp và KL cũ giữ nguyên.`);
     } finally { setSaving(false); }
   };
   // FloorPlanDefectTab handles Esc in capture phase so it cannot unselect

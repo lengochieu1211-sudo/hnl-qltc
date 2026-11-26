@@ -48,3 +48,6 @@ for(const feature of ['data-hnl-sub-count-unit','Lưu biểu mẫu & Đánh dấ
 for(const feature of ['data-hnl-count-saved-marker','mapLayers.countPoints','onSaveHighlightCount','onStartCountOnMap','pointerEvents="none"'])assert.ok(source.floor.includes(feature),feature);
 for(const feature of ['canSaveHighlightCount(existing, request)','applyHighlightCount(existing, request)','onSaveHighlightCount={handleSaveHighlightCount}'])assert.ok(source.app.includes(feature),feature);
 console.log('HIGHLIGHT_COUNT_POINTS_GOLDEN PASS: stage unit isolation; 4-point sums; optional legacy data; manual/auto; polygon safety; RBAC/lock/finalized; no mutations; UI wiring');
+
+assert.equal(canSaveHighlightCount({...room,quantityFormulaSettings:{'sub:stage-cai':{auto:true,expression:'KL*0.5',value:5}}},{...base,mode:'points'}),false,'count must not overwrite a formula source');
+assert.equal(canSaveHighlightCount({...room,subItems:[stage,stage]},base),false,'duplicate stage ID must fail closed');

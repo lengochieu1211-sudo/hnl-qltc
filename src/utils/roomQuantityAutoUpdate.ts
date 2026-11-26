@@ -72,6 +72,8 @@ export function recalculateLinkedRoomQuantities(room:RoomProgressItem,floor:Floo
   const seen=new Set<string>();
   for(const cat of categories){
     const resolved=resolve(cat);if(!resolved||seen.has(resolved.categoryKey))continue;
+    if(room.workCategoryId && cat===room.workCategory && !catalogMatches(cat,catalog,room.floorId).some(v=>
+      (v.id===room.workCategoryId||v.workCategoryId===room.workCategoryId)&&'id:'+(v.workCategoryId||v.id)===resolved.categoryKey))continue;
     seen.add(resolved.categoryKey);
     const id='main:'+resolved.categoryKey,setting=settings[id];
     if(!setting||setting.categoryKey!==resolved.categoryKey||setting.auto!==true)continue;
@@ -90,6 +92,12 @@ export function recalculateLinkedRoomQuantities(room:RoomProgressItem,floor:Floo
     if(!setting||setting.auto!==true)return stage;
     const resolved=resolve(stage.category||room.workCategory||'');
     if(!resolved||setting.categoryKey!==resolved.categoryKey)return stage;
+    // Explicit stage identity is authoritative. Never recalculate a different
+    // category merely because a legacy display name still matches.
+    if(stage.workCategoryId && !catalogMatches(stage.category||room.workCategory||'',catalog,room.floorId).some(v=>
+      (v.id===stage.workCategoryId||v.workCategoryId===stage.workCategoryId) &&
+      'id:'+(v.workCategoryId||v.id)===resolved.categoryKey)) return stage;
+    if((room.subItems||[]).filter(s=>s.id===stage.id).length!==1)return stage;
     if(failedMain.has(resolved.categoryKey)&&/\bKL\b/i.test(setting.expression))return stage;
     const unit=normalizeUnit(stage.volumeUnit||resolved.unit);
     const value=evaluate(setting,stage.workVolume,unit,nextVolumes[resolved.key],resolved.unit);

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   canApplyDirectHighlightQuantity, canApplyDirectHighlightShapes,
-  withDirectHighlightQuantity, withDirectHighlightShapes,
+  withDirectHighlightQuantity, withDirectHighlightShapes, verifyDirectHighlightMeasurement, measureDirectHighlightArea, getDirectHighlightEffectiveUnit,
 } from '../src/utils/floorHighlightDirectShapes.ts';
 
 const rect = { x: 0, y: 0, width: 80, height: 50 };
@@ -96,3 +96,42 @@ assert.ok(tab.includes('setSelectedRoomForEdit(null)'), 'form draft not reused w
 assert.ok(modal.includes('legacyHighlightEditorVisible = false'),'legacy UI hidden but data retained');
 assert.equal(Object.keys(room.categoryHighlightTotalShapes).length,1,'historic main shape retained');
 console.log('CACH2_CAS_QUANTITY_GOLDEN PASS: 30+ cases — stale two-account model, unit/acceptance/lock, form/map, legacy-preservation and server transaction source guard');
+
+const {createFloorMetricCalibration,floorMetricSourceKey}=await import('../src/utils/highlightMetricGeometry.ts');
+const f={id:'floorA',imageUrl:'fixture.png',floorName:'Tầng 1',uploadedAt:'2026-11-26'};
+const size={width:1000,height:1000};
+const calibration=createFloorMetricCalibration(f,size,{x:0,y:0},{x:10,y:0},1,444);
+const floor={...f,highlightMetricCalibration:calibration};
+const full={x:0,y:0,width:100,height:100};
+const half={x:0,y:0,width:50,height:100};
+const measuredRoom={...room,width:40,height:20,categoryHighlightShapes:{'Trần chìm':[full]}};
+const evidence={...base,expectedFloorSourceKey:floorMetricSourceKey(f),target:'main',measurement:{kind:'area'},measuredQuantity:{value:8,unit:'m²'}};
+assert.equal(verifyDirectHighlightMeasurement(measuredRoom,floor,evidence),true);
+assert.equal(verifyDirectHighlightMeasurement(measuredRoom,floor,{...evidence,measuredQuantity:{value:9999,unit:'m²'}}),false);
+assert.equal(verifyDirectHighlightMeasurement(measuredRoom,floor,{...evidence,measurement:undefined}),false);
+assert.equal(verifyDirectHighlightMeasurement(measuredRoom,{...floor,imageOfflineStale:true},evidence),false);
+assert.equal(verifyDirectHighlightMeasurement(measuredRoom,{...floor,deletedAt:1},evidence),false);
+assert.equal(verifyDirectHighlightMeasurement(measuredRoom,{...floor,highlightMetricCalibration:{...calibration,metresPerPixel:999}},evidence),false);
+const childRoom={...measuredRoom,categoryHighlightShapes:{'Trần chìm':[half]},subItems:[{...stage,highlightShapes:[full]}]};
+const child={...evidence,target:'stageA',measuredQuantity:{value:4,unit:'m²'}};
+assert.equal(measureDirectHighlightArea(floor,size,childRoom,'Trần chìm','stageA',[full]).value,4);
+assert.equal(verifyDirectHighlightMeasurement(childRoom,floor,child),true);
+assert.equal(verifyDirectHighlightMeasurement(childRoom,floor,{...child,measuredQuantity:{value:8,unit:'m²'}}),false);
+const {getCalibratedHighlightRows}=await import('../src/utils/highlightMetricCategorySummary.ts');
+assert.equal(getCalibratedHighlightRows(childRoom,floor,size).find(x=>x.target==='stageA').areaM2,4);
+const lengthRoom={...measuredRoom,categoryVolumeUnits:{'Trần chìm':'md'}};
+const line={...evidence,measurement:{kind:'length',path:[{x:0,y:0},{x:10,y:0}]},measuredQuantity:{value:1,unit:'m'}};
+assert.equal(verifyDirectHighlightMeasurement(lengthRoom,floor,line),true);
+assert.equal(verifyDirectHighlightMeasurement(lengthRoom,floor,{...line,measuredQuantity:{value:2,unit:'m'}}),false);
+const wall={...evidence,measurement:{kind:'wall',path:line.measurement.path,height:3,faces:2,openingsM2:1},measuredQuantity:{value:5,unit:'m²'}};
+assert.equal(verifyDirectHighlightMeasurement(measuredRoom,floor,wall),true);
+assert.equal(verifyDirectHighlightMeasurement(measuredRoom,floor,{...wall,measurement:{...wall.measurement,openingsM2:7}}),false);
+assert.equal(canApplyDirectHighlightQuantity({...room,quantityFormulaSettings:{'main:id:cat1':{auto:true,expression:'S',value:10,unit:'m²',categoryKey:'id:cat1'}}},main),false);
+assert.equal(canApplyDirectHighlightQuantity({...room,quantityFormulaSettings:{'sub:stageA':{auto:true,expression:'KL*2',value:9,unit:'m²',categoryKey:'id:cat1'}}},main),false);
+assert.equal(canApplyDirectHighlightQuantity({...room,quantityFormulaSettings:{'sub:stageA':{auto:false,expression:'3*3',value:9,unit:'m²',categoryKey:'id:cat1'}}},sub),false);
+assert.equal(canApplyDirectHighlightQuantity({...room,workCategoryId:'cat1',subItems:[{...stage,workCategoryId:'other'}]},sub),false);
+const idRoom={...room,workCategoryId:'cat1',categoryVolumes:{cat1:10},categoryVolumeUnits:{cat1:'m²'}};
+assert.equal(withDirectHighlightQuantity(idRoom,{...main,category:'cat1'}).workVolume,12.75);
+assert.equal(getDirectHighlightEffectiveUnit({...room,categoryVolumeUnits:{},volumeUnit:undefined},'Trần chìm','main'),'');
+assert.ok(backend.includes('verifyDirectHighlightMeasurement(current,latestFloor,quantityRequest)'));
+console.log('PR516 MEASUREMENT EVIDENCE GOLDEN PASS');
