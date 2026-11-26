@@ -140,7 +140,7 @@ function restoreLocalOmittedImages(cloudItem: any, localItem: any): any {
   }
   return merged;
 }
-import { subscribeToProjectRealtime, saveProjectDiffsToCloud, queueProjectDiffsToFirestoreOffline, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, subscribeCurrentUserPinResetRealtime, signOutGoogle, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, subscribeProjectSharedSettings, fetchProjectSharedSettingsSnapshot, saveProjectSharedSettings, saveProjectAuditLog, loadProjectFromFirestoreCache, fetchProjectFromCloud, updateProjectPresence } from './lib/firebase';
+import { subscribeToProjectRealtime, saveProjectDiffsToCloud, commitNewCrewTeamAndLog, queueProjectDiffsToFirestoreOffline, saveProjectToCloud, getCloudPayload, getCurrentRealFirebaseUser, onAuthUserChanged, fetchProjectUserRoleFromCloud, subscribeProjectUserRoleRealtime, subscribeCurrentUserPinResetRealtime, signOutGoogle, fetchCurrentUserProjectsFromCloud, subscribeCurrentUserProjectsRealtime, subscribeProjectSharedSettings, fetchProjectSharedSettingsSnapshot, saveProjectSharedSettings, saveProjectAuditLog, loadProjectFromFirestoreCache, fetchProjectFromCloud, updateProjectPresence } from './lib/firebase';
 import { REALTIME_STATE_KEYS, STATE_KEY_TO_CLOUD_NAME } from './config/realtimeCollections';
 import { hasPendingChatOutboxForCurrentUser } from './lib/chatService';
 import { FIREBASE_ONLY_RUNTIME, LEGACY_LOCAL_BUSINESS_CACHE_WRITE_ENABLED, LEGACY_LOCAL_IMPORT_ENABLED } from './config/runtimeArchitecture';
@@ -183,6 +183,7 @@ import { compareWorkVolumeManualOrder, reorderVisibleWorkVolumes } from './utils
 import { canonicalNormCategoryIds, canonicalWorkCategoryId, resolveUniqueMaterialIdentity, resolveWorkVolumeRef, validateInventoryOutProvenance, validateMaterialNormCatalog, validateWorkVolumeCatalog } from './utils/linkageIntegrity';
 import { reconcileMaterialNormWorkCategoryLinks } from './utils/projectReconciliation';
 import { createEntityId, createShortToken } from './utils/idUtils';
+import { crewAutoTeamId, planCrewLogTeamLink } from './utils/teamDirectoryIntegrity';
 import { normalizeUnit, areSameUnit } from './utils/unitUtils';
 import { buildMaterialAliasMap, resolveNormMaterialId, normalizeMaterialNameKey } from './utils/inventoryUtils';
 import { DEFAULT_STRUCTURE_CONFIG, moveFloorsToStructureGroup, normalizeStructureGroupConfig, resolveFloorStructureGroupId, type ProjectStructureConfig } from './utils/structureGroupUtils';
@@ -2111,6 +2112,8 @@ function AuthenticatedApp() {
 
   const [cloudInitialReady, setCloudInitialReady] = useState<boolean>(false);
   const receivedInitialSubcollectionsRef = useRef<Set<string>>(new Set());
+  const crewAutoTeamCloudBusyRef = useRef(false);
+  const crewAutoTeamCloudEpochRef = useRef(0);
   const [dataCloudStatus, setDataCloudStatus] = useState<{ phase: 'idle' | 'syncing' | 'synced' | 'error' | 'conflict'; lastSyncAt?: number; message?: string }>({ phase: 'idle' });
   // Firestore SDK owns offline pending writes. This counter is UI-only telemetry; it is
   // never used as a second persistence queue and is decremented only when the SDK's
@@ -5349,7 +5352,7 @@ function AuthenticatedApp() {
     if (!projectRoleAllowed) return;
     if (projectRoleSource !== 'cloud' && projectRoleSource !== 'offline-cache') return;
     if (!canEditProjectData(currentUserRole)) return;
-    if (syncLockRef.current || switchingProjectRef.current || undoCloudBusyRef.current) return;
+    if (syncLockRef.current || switchingProjectRef.current || undoCloudBusyRef.current || crewAutoTeamCloudBusyRef.current) return;
     if (!cloudUserKey) return;
 
     // Online writes wait for the full 9-dataset bootstrap. Offline writes are different:
@@ -5365,6 +5368,7 @@ function AuthenticatedApp() {
     if (!canWriteOnline && !canQueueOfflineFirestoreWrite) return;
 
     const projectIdForThisSave = activeProjectId;
+    const crewAutoTeamEpochAtSchedule = crewAutoTeamCloudEpochRef.current;
     const priorityRevisionAtSchedule = priorityCloudSyncRevisionRef.current;
     const hasPriorityRealtimeChange = priorityRevisionAtSchedule > flushedPriorityCloudSyncRevisionRef.current;
     const cloudSaveDelayMs = canQueueOfflineFirestoreWrite ? 0 : (hasPriorityRealtimeChange ? 300 : 6000);
@@ -5374,7 +5378,7 @@ function AuthenticatedApp() {
     }
 
     const timer = setTimeout(() => {
-      if (!syncLockRef.current && !switchingProjectRef.current && !undoCloudBusyRef.current && activeProjectIdRef.current === projectIdForThisSave) {
+      if (!syncLockRef.current && !switchingProjectRef.current && !undoCloudBusyRef.current && !crewAutoTeamCloudBusyRef.current && crewAutoTeamEpochAtSchedule===crewAutoTeamCloudEpochRef.current && activeProjectIdRef.current === projectIdForThisSave) {
         if (!FIREBASE_ONLY_RUNTIME && autoSyncEnabled && googleServerBackendAvailable) {
           handleDriveSyncUp().catch(err => console.warn('Auto drive sync warning:', err));
         }
@@ -7637,6 +7641,86 @@ function AuthenticatedApp() {
     }));
   };
 
+  // Form-only save. New ADMIN team creation is server-acknowledged and atomic;
+  // existing teams and EDITOR's legacy free-name log keep the normal local-first path.
+  const handleSaveCrewLogWithTeam = async (record: CrewRecord, editing: boolean): Promise<boolean> => {
+    if (!isProjectRoleResolved || !canEditCrewData(currentUserRole)) return false;
+    if (FIREBASE_ONLY_RUNTIME && businessDataSource === 'legacy-migration-fallback') {
+      alert('Dữ liệu legacy chỉ đọc. Hãy đồng bộ trước khi chỉnh sửa.');
+      return false;
+    }
+    const allowCreate = canManageTeams(currentUserRole);
+    let newTeamId = '';
+    try { newTeamId=crewAutoTeamId(record.teamName); } catch { /* only necessary for a genuinely new team */ }
+    const now = Date.now();
+    const actorUid = getCurrentRealFirebaseUser()?.uid || '';
+    const plan = (snapshot: AppData) => {
+      const matches = snapshot.crewRecords.filter(r=>r.id===record.id);
+      if ((editing && (matches.length!==1 || matches[0].deletedAt!=null)) || (!editing && matches.length)) {
+        return {ok:false as const,error:'Ghi nhận đã thay đổi hoặc đã tồn tại. Hãy mở lại biểu mẫu.'};
+      }
+      const original = editing ? matches[0] : undefined;
+      if (original && (Number(original.revision||0)!==Number(record.revision||0) || Number(original.updatedAt||0)!==Number(record.updatedAt||0))) return {ok:false as const,error:'Ghi nhận đã thay đổi. Hãy mở lại trước khi lưu.'};
+      const nextRecord: CrewRecord = original ? {...original,...record} : {
+        ...record,createdAt:Number(record.createdAt || now),
+        ...(actorUid && !record.createdByUid ? {createdByUid:actorUid} : {}),
+      };
+      return planCrewLogTeamLink(snapshot.teams || [],nextRecord,original,allowCreate,newTeamId,now);
+    };
+    const first = plan(present);
+    if (first.ok === false) { alert(first.error); return false; }
+    if (first.teams !== present.teams) {
+      if (!FIREBASE_ONLY_RUNTIME || !isOnline || !cloudInitialReady || projectRoleSource !== 'cloud' || !projectRoleAllowed ||
+          businessDataSource !== 'cloud' || switchingProjectRef.current || syncLockRef.current ||
+          activeProjectIdRef.current !== activeProjectId || !lastSyncedPresentRef.current ||
+          syncDiagnosticPendingData > 0 || firestorePendingWriteCountRef.current > 0 ||
+          dataCloudStatus.phase === 'syncing' || crewAutoTeamCloudBusyRef.current) {
+        throw new Error('Đội mới cần kết nối và đồng bộ Firestore trước khi lưu. Ghi nhận chưa lưu, biểu mẫu được giữ nguyên.');
+      }
+      const projectId = activeProjectId;
+      const team = first.teams.find(t=>t.id===first.record.teamId);
+      if (!team || team.id !== newTeamId) throw new Error('Không xác định được đội mới.');
+      const original = editing ? present.crewRecords.find(r=>r.id===record.id) : undefined;
+      let acknowledged: Awaited<ReturnType<typeof commitNewCrewTeamAndLog>> | null = null;
+      crewAutoTeamCloudBusyRef.current=true;
+      crewAutoTeamCloudEpochRef.current+=1;
+      try { await queueCloudSave(async () => {
+        if (switchingProjectRef.current || activeProjectIdRef.current !== projectId) throw new Error('Dự án đã chuyển. Chưa lưu.');
+        acknowledged = await commitNewCrewTeamAndLog(projectId,team,first.record,original);
+        const saved = acknowledged;
+        if (activeProjectIdRef.current !== projectId || switchingProjectRef.current) return;
+        const upsert = <T extends {id:string;revision?:number;updatedAt?:number}>(rows:T[], item:T):T[] => {
+          const existing = rows.find(r=>r.id===item.id);
+          if (!existing) return [...rows,item];
+          if (Number(existing.revision||0)>Number(item.revision||0) || Number(existing.updatedAt||0)>Number(item.updatedAt||0)) return rows;
+          return rows.map(r=>r.id===item.id ? item : r);
+        };
+        const apply = (snapshot:AppData):AppData => ({
+          ...snapshot,teams:upsert(snapshot.teams||[],saved.team),crewRecords:upsert(snapshot.crewRecords,saved.record),
+        });
+        // Acknowledged server data is not a fresh local edit. Update baseline and
+        // present together, without incrementing revisions or queueing duplicate writes.
+        if (lastSyncedPresentRef.current) lastSyncedPresentRef.current=apply(lastSyncedPresentRef.current);
+        setPresent(prev=>activeProjectIdRef.current===projectId && !switchingProjectRef.current ? apply(prev) : prev);
+        hasUnsavedAllBackupChangesRef.current=true;
+      });
+      } finally {
+        crewAutoTeamCloudBusyRef.current=false;
+        crewAutoTeamCloudEpochRef.current+=1;
+        setCloudDataRetryTick(t=>t+1);
+      }
+      if (!acknowledged) throw new Error('Chưa nhận xác nhận Firestore.');
+      return true;
+    }
+    updateAppData(prev=>{
+      const latest = plan(prev);
+      if (latest.ok === false) { window.setTimeout(()=>alert(latest.error),0); return prev; }
+      if (latest.teams !== prev.teams) { window.setTimeout(()=>alert('Danh mục đội đã đổi. Chưa lưu; hãy mở lại biểu mẫu.'),0); return prev; }
+      return {...prev,crewRecords:editing ? prev.crewRecords.map(r=>r.id===record.id ? latest.record : r) : [...prev.crewRecords,latest.record]};
+    });
+    return true; // Local-first existing-team save; not a server acknowledgement.
+  };
+
   const handleUpdateCrewRecord = (id: string, record: Partial<CrewRecord>) => {
     if (!isProjectRoleResolved || !canEditCrewData(currentUserRole)) { console.warn('[RBAC] Tài khoản không có quyền sửa chấm công/quân số.'); return; }
     updateAppData((prev) => ({
@@ -8378,6 +8462,7 @@ function AuthenticatedApp() {
               inventory={inventory}
               materialNorms={computedMaterialNorms}
               onAddCrewRecord={handleAddCrewRecord}
+              onSaveCrewLogWithTeam={handleSaveCrewLogWithTeam}
               onUpdateCrewRecord={handleUpdateCrewRecord}
               onDeleteCrewRecord={handleDeleteCrewRecord}
               onDeleteMultipleCrewRecords={handleDeleteMultipleCrewRecords}

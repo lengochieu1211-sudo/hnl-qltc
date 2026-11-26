@@ -4,6 +4,7 @@ import {
   findWorsenedTeamNameConflict,
   normalizeTeamDirectoryName,
   resolveUniqueTeamByDirectoryName,
+  crewAutoTeamId, planCrewLogTeamLink,
 } from '../src/utils/teamDirectoryIntegrity';
 
 const team = (id: string, name: string): TeamInfo => ({
@@ -60,3 +61,41 @@ assert.match(crewSource, /resolveUniqueTeamByDirectoryName\(teams, teamName\)/, 
 assert.doesNotMatch(crewSource, /teams\.find\(t => t\.name\.trim\(\)\.toLowerCase\(\) === teamName/, 'Crew save must never pick the first display-name match');
 assert.match(crewSource, /matchingIndices\.length > 1/, 'Excel import must detect ambiguous legacy team names');
 assert.match(crewSource, /normalizeTeamDirectoryName\(nameStr\)/, 'Excel team matching must use the canonical normalizer');
+
+const log = {id:'log-1',date:'2026-11-26',teamName:'  Đội mới  ',leaderName:' Hùng ',workerCount:7,taskDescription:''};
+const id=crewAutoTeamId(log.teamName);
+assert.equal(id,crewAutoTeamId('đỘI MỚI'));
+assert.notEqual(id,crewAutoTeamId('Đội khác'));
+const p=planCrewLogTeamLink(clean,log,undefined,true,id,1000);
+assert.ok(p.ok);
+assert.equal(p.record.teamId,id);
+assert.deepEqual(p.teams.at(-1),{id,name:'Đội mới',leader:'Hùng',defaultCount:7,createdAt:1000});
+assert.equal(clean.length,2);
+const next=planCrewLogTeamLink(p.teams,{...log,id:'log-2',teamName:'đỘI MỚI'},undefined,true,id,1001);
+assert.ok(next.ok);assert.equal(next.record.teamId,id);assert.equal(next.teams,p.teams);
+assert.equal(planCrewLogTeamLink(legacyDuplicate,{...log,teamName:'đội nguyên'},undefined,true,id,1000).ok,false);
+const explicit=planCrewLogTeamLink(legacyDuplicate,{...log,teamId:'c',teamName:'đội nguyên'},undefined,true,id,1000);
+assert.ok(explicit.ok);assert.equal(explicit.record.teamId,'c');
+assert.equal(planCrewLogTeamLink(clean,{...log,teamId:'missing'},undefined,true,id,1000).ok,false);
+const editor=planCrewLogTeamLink(clean,log,undefined,false,id,1000);
+assert.ok(editor.ok);assert.equal(editor.teams,clean);assert.equal(editor.record.teamId,undefined);
+const historical=planCrewLogTeamLink(clean,{...log,workerCount:9},log,true,id,1000);
+assert.ok(historical.ok);assert.equal(historical.teams,clean);assert.equal(historical.record.teamId,undefined);
+assert.equal(planCrewLogTeamLink(clean,log,undefined,true,'a',1000).ok,false);
+assert.equal(planCrewLogTeamLink(clean,{...log,workerCount:0},undefined,true,id,1000).ok,false);
+assert.equal(planCrewLogTeamLink([...clean,{...p.teams.at(-1)!,deletedAt:1}],log,undefined,true,id,1000).ok,false);
+assert.match(crewSource,/await onSaveCrewLogWithTeam\(\{\.\.\.recordData,teamId:teamId \|\| undefined/);
+assert.match(crewSource,/value=\{t.id\}>\{t.name\}/);
+const appSource=(await import('node:fs')).readFileSync('src/App.tsx','utf8');
+assert.match(appSource,/const allowCreate = canManageTeams\(currentUserRole\)/);
+assert.match(appSource,/commitNewCrewTeamAndLog\(projectId,team,first.record,original\)/);
+assert.match(appSource,/firestorePendingWriteCountRef.current > 0/);
+assert.match(crewSource,/\[isActive, editingRecord, showAddLogModal, floorPlans, normalizedStructureConfig\]/);
+const crewWrapper=(await import('node:fs')).readFileSync('src/components/CrewTab.tsx','utf8');
+assert.match(crewWrapper,/onSaveCrewLogWithTeam=\{props.onSaveCrewLogWithTeam/);
+console.log('CREW AUTO TEAM PLAN GOLDEN PASS');
+
+assert.match(appSource,/crewAutoTeamEpochAtSchedule===crewAutoTeamCloudEpochRef.current/);
+assert.match(appSource,/crewAutoTeamCloudBusyRef.current=true/);
+assert.match(appSource,/Number\(original.revision\|\|0\)!==Number\(record.revision\|\|0\)/);
+assert.match(crewSource,/if \(!canOperate \|\| crewSaveBusyRef.current\) return/);
