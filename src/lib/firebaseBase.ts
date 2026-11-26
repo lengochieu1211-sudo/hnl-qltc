@@ -46,7 +46,9 @@ import { CURRENT_DATA_SCHEMA_VERSION, getPendingDataSchemaMigrations, readDataSc
 import { clearRememberedVerifiedAuthIdentity } from '../utils/offlineAccess';
 import { assertP21DemoFullProjectSaveBoundary, assertP21DemoWriterBoundary } from '../utils/p21DemoWriterBoundary';
 import type { ProjectStructureConfig } from '../utils/structureGroupUtils';
-import type { RoomProgressItem, FloorPlan } from '../types';
+import type { RoomProgressItem, FloorPlan, CrewRecord, TeamInfo } from '../types';
+import { crewAutoTeamId, normalizeTeamDirectoryName } from '../utils/teamDirectoryIntegrity';
+import { commitCrewAutoTeamPair } from './crewAutoTeamCloud';
 import type { DirectHighlightCommitRequest } from '../utils/floorHighlightDirectShapes';
 import { canApplyDirectHighlightShapes, canApplyDirectHighlightQuantity, withDirectHighlightShapes, withDirectHighlightQuantity } from '../utils/floorHighlightDirectShapes';
 import { floorMetricSourceKey } from '../utils/highlightMetricGeometry';
@@ -2274,6 +2276,29 @@ export async function commitDirectHighlightCas(projectId: string, request: Direc
     transaction.update(roomRef, sanitizePayloadForCloud(fields));
     return { ...changed, ...fields } as RoomProgressItem;
   }, { maxAttempts: 3 });
+}
+
+/** Create a new team and the form's crew record as one acknowledged transaction.
+ * Directory name scan is authoritative; deterministic ID serializes two concurrent
+ * automatic creates. Manual directory creation remains a separate existing flow. */
+export async function commitNewCrewTeamAndLog(projectId:string, team:TeamInfo, record:CrewRecord, original?:CrewRecord) {
+  const user=getCurrentRealFirebaseUser();
+  if (!projectId || !user || (typeof navigator!=='undefined' && !navigator.onLine)) throw new Error('Cần kết nối Firestore để tạo đội mới.');
+  const role=await fetchProjectUserRoleFromCloud(projectId,user);
+  if(role.verification!=='verified'||!role.allowed||role.role!=='ADMIN') throw new Error('Chỉ ADMIN được tạo đội mới.');
+  if(team.id!==crewAutoTeamId(team.name)||record.teamId!==team.id) throw new Error('Liên kết đội mới không hợp lệ.');
+  const existing=await getDocsFromServer(collection(db,'projects',projectId,'teams'));
+  if(existing.docs.some(s=>{const t=s.data();return !t.deleted&&t.deletedAt==null&&normalizeTeamDirectoryName(t.name)===normalizeTeamDirectoryName(team.name);})) {
+    throw new Error('Tên đội đã được tạo trên thiết bị khác. Hãy chờ đồng bộ danh mục và lưu lại; chưa tạo thêm đội.');
+  }
+  const now=Date.now();
+  const metadata={updatedAt:now,updatedByUid:user.uid,updatedByEmail:normalizeEmail(user.email),updatedByDeviceId:getDeviceId(),updatedByDeviceName:getDeviceName(),deleted:false,deletedAt:null,deletedByUid:null,deletedBy:null};
+  const teamPayload=sanitizePayloadForCloud({...team,...metadata,revision:1,createdAt:now,createdByUid:user.uid}) as TeamInfo;
+  const recordPayload=sanitizeSubcollectionItemForCloud('crew_records',{...record,...metadata,revision:Math.max(0,Number(original?.revision||0))+1,updatedAt:Math.max(now,Number(original?.updatedAt||0)+1),createdAt:original?.createdAt||record.createdAt||now,...(!original?{createdByUid:user.uid}:{})}) as CrewRecord;
+  const saved=await commitCrewAutoTeamPair(db,projectId,teamPayload,recordPayload,original);
+  // Audit is best-effort only after the pair is durably acknowledged; no second data write.
+  void Promise.all([saveProjectAuditLog(projectId,{module:'teams',action:'CREATE',recordId:saved.team.id,description:'Tạo đội tự động từ ghi nhận quân số',actorRole:'ADMIN'}),saveProjectAuditLog(projectId,{module:'crew_records',action:original?'UPDATE':'CREATE',recordId:saved.record.id,description:'Lưu quân số và liên kết đội mới',actorRole:'ADMIN'})]).catch(err=>console.warn('Crew auto-team audit warning',err));
+  return saved;
 }
 
 /**
