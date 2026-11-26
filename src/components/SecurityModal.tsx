@@ -46,6 +46,7 @@ import { formatDateTime, toLocalDateInputValue, vietnamDateInputToDayStartMs } f
 import { isSuperAdminEmail } from '../config/superAdmin';
 import { ContactMenu } from './ContactMenu';
 import { MultiProjectAccessPanel } from './MultiProjectAccessPanel';
+import { shouldShowOwnerRecovery, type OwnerRecoverySnapshot } from '../utils/ownerRecoveryVisibility';
 
 const ContactPhoneEditor: React.FC<{
   initialValue: string;
@@ -167,6 +168,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   const [cloudUser, setCloudUser] = useState<any>(getCurrentFirebaseUser());
   const [cloudRoleInfo, setCloudRoleInfo] = useState<{ allowed: boolean; role: UserRole; isCloudSynced: boolean; ownerUid?: string; ownerEmail?: string; isOwner?: boolean } | null>(null);
   const [isCheckingCloud, setIsCheckingCloud] = useState<boolean>(false);
+  const [ownerRecoverySnapshot, setOwnerRecoverySnapshot] = useState<OwnerRecoverySnapshot | null>(null);
   const [isClaiming, setIsClaiming] = useState<boolean>(false);
   const [claimMsg, setClaimMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isAccountBusy, setIsAccountBusy] = useState(false);
@@ -221,11 +223,9 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   const normalizedCloudEmail = String(cloudUser?.email || '').trim().toLowerCase();
   const normalizedOwnerEmail = String(cloudRoleInfo?.ownerEmail || '').trim().toLowerCase();
   const hasDifferentCloudOwner = Boolean((cloudRoleInfo?.ownerUid || normalizedOwnerEmail) && !cloudRoleInfo?.isOwner && normalizedOwnerEmail && normalizedOwnerEmail !== normalizedCloudEmail);
-  const canAttemptOwnerRecovery = Boolean(
-    cloudUser &&
-    !cloudRoleInfo?.isOwner &&
-    !hasDifferentCloudOwner &&
-    (!cloudRoleInfo?.ownerUid || !normalizedOwnerEmail || normalizedOwnerEmail === normalizedCloudEmail)
+  const canAttemptOwnerRecovery = isOpen && shouldShowOwnerRecovery(
+    ownerRecoverySnapshot, selectedPid, getCurrentFirebaseUser(),
+    typeof navigator !== 'undefined' && navigator.onLine, isCheckingCloud,
   );
 
   useEffect(() => {
@@ -243,6 +243,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
 
   const refreshCloudStatus = async (pid: string) => {
     const requestId = ++cloudStatusRequestRef.current;
+    setOwnerRecoverySnapshot(null);
     setIsCheckingCloud(true);
     try {
       const u = getCurrentFirebaseUser();
@@ -255,6 +256,10 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
           return;
         }
         setCloudRoleInfo(info);
+        const currentUser = getCurrentFirebaseUser();
+        if (currentUser?.uid === u.uid && currentUser?.email === u.email && info.verification === 'verified' && navigator.onLine) {
+          setOwnerRecoverySnapshot({ projectId: pid, uid: u.uid, email: u.email || '', info });
+        }
         if (info.allowed && info.role) {
           setRoleState(info.role);
           setCurrentUserRole(info.role);
@@ -279,6 +284,29 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       }
     }
   };
+
+  useEffect(() => {
+    if (!isOpen) {
+      // Do not reuse a previously verified result across modal sessions.
+      cloudStatusRequestRef.current += 1;
+      setOwnerRecoverySnapshot(null);
+      setIsCheckingCloud(false);
+      return;
+    }
+    const invalidate = () => {
+      cloudStatusRequestRef.current += 1;
+      setOwnerRecoverySnapshot(null);
+      setIsCheckingCloud(false);
+    };
+    const reconnect = () => { void refreshCloudStatus(selectedPidRef.current); };
+    window.addEventListener('offline', invalidate);
+    window.addEventListener('online', reconnect);
+    return () => {
+      window.removeEventListener('offline', invalidate);
+      window.removeEventListener('online', reconnect);
+      invalidate();
+    };
+  }, [isOpen]);
 
   useEffect(() => {
     if (isOpen) {
@@ -669,6 +697,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
       } else {
         setCloudUser(null);
         setCloudRoleInfo(null);
+        setOwnerRecoverySnapshot(null);
         setRoleState('VIEWER');
         setCurrentUserRole('VIEWER');
         setAccountMsg({ type: 'success', text: 'Đã đăng xuất tài khoản Google/Firebase.' });
@@ -681,7 +710,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({
   };
 
   const handleClaimOwnership = async () => {
-    if (!selectedPid) return;
+    if (!selectedPid || !canAttemptOwnerRecovery || isClaiming) return;
     let u = getCurrentFirebaseUser();
     if (!u) {
       try {
@@ -1927,8 +1956,8 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
                     <div className="flex items-start gap-2">
                       <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                       <div className="text-[11px] text-amber-900 leading-relaxed">
-                        <span className="font-bold">Xác minh lại quyền chủ dự án: </span>
-                        Nếu tài khoản Google hiện tại là chủ dự án hoặc dự án chưa có chủ hợp lệ trên đám mây, hãy xác minh lại để khôi phục quyền quản trị.
+                        <span className="font-bold">Khôi phục quyền chủ dự án: </span>
+                        Firebase chưa xác nhận đầy đủ liên kết chủ sở hữu. Khôi phục quyền nếu tài khoản hiện tại đủ điều kiện.
                       </div>
                     </div>
 
@@ -1940,7 +1969,7 @@ PIN cũ sẽ bị vô hiệu khi thiết bị trực tuyến. Người dùng s�
                         className="px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-50"
                       >
                         <Crown className="w-3.5 h-3.5" />
-                        <span>{isClaiming ? 'Đang xác thực...' : 'Xác minh quyền chủ dự án'}</span>
+                        <span>{isClaiming ? 'Đang khôi phục...' : 'Khôi phục quyền chủ dự án'}</span>
                       </button>
                       <button
                         type="button"
