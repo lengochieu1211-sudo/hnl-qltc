@@ -4,7 +4,7 @@ import type { FloorPlan, FloorMetricCalibration as FloorMetricCalibrationData, P
 import { mapDirectHighlightPointerToFloor } from '../utils/floorHighlightDirectShapes';
 import { findRoomObjectSnap } from '../utils/roomHighlightObjectSnap';
 import { applyCadDrawingGuide } from '../utils/roomHighlightCadShortcuts';
-import { createFloorMetricCalibration, getValidFloorMetricCalibration } from '../utils/highlightMetricGeometry';
+import { createFloorMetricCalibration, getValidFloorMetricCalibration, floorMetricSourceKey } from '../utils/highlightMetricGeometry';
 import { useFloorPlanToolPopover } from '../hooks/useFloorPlanToolPopover';
 
 interface Props {
@@ -30,7 +30,7 @@ const floorPoint = (point: Point2D) => ({ x: Math.min(100,Math.max(0,point.x)), 
 
 /** Opt-in two-point calibration. Draws in the *existing* image overlay; zoom / pan
  * and rotation map through the same inverse pointer transform as direct Highlight.
- * No stored quantity is mutated by calibrating.
+ * Saving may recalculate explicitly linked, editable quantities via the parent.
  */
 export const FloorMetricCalibration: React.FC<Props> = ({
   floor, imageContainer, rotation, zoomScale, isFullscreen=false, launch, rooms, canSave, onSave, onActiveChange, onLaunchHandled,
@@ -48,13 +48,22 @@ export const FloorMetricCalibration: React.FC<Props> = ({
 
   const image = imageContainer?.querySelector('img');
   const dimensions = { width: image?.naturalWidth || 0, height: image?.naturalHeight || 0 };
+  const imageReady = !floor.imageOfflineStale && !!image?.complete && image.getAttribute('src') === floor.imageUrl && dimensions.width > 1 && dimensions.height > 1;
+  const sourceRevision = JSON.stringify([floorMetricSourceKey(floor), floor.revision, floor.highlightMetricCalibration?.updatedAt, dimensions.width, dimensions.height]);
+  const [draftSource, setDraftSource] = useState<string | null>(null);
   const saved = getValidFloorMetricCalibration(floor, dimensions);
   const actualDistance = Number(distanceInput.replace(',', '.'));
-  const draft = points.length === 2
+  const draft = imageReady && draftSource === sourceRevision && points.length === 2
     ? createFloorMetricCalibration(floor, dimensions, points[0], points[1], actualDistance)
     : null;
-  const close = () => { setActive(false); onActiveChange?.(false); setPoints([]); setNotice(''); };
+  const close = () => { setActive(false); onActiveChange?.(false); setPoints([]); setDraftSource(null); setNotice(''); };
   useEffect(() => { close(); }, [floor.id]);
+  useEffect(() => {
+    if (active && (!imageReady || draftSource !== sourceRevision || !canSave)) {
+      close();
+      setNotice('Nguồn ảnh, tỷ lệ hoặc quyền đã thay đổi. Hãy mở lại Đo tỷ lệ.');
+    }
+  }, [active, imageReady, draftSource, sourceRevision, canSave]);
   useEffect(() => () => { onActiveChange?.(false); }, []);
   useEffect(() => {
     if (!active) return;
@@ -64,10 +73,10 @@ export const FloorMetricCalibration: React.FC<Props> = ({
   }, [active]);
   const open = () => {
     if (active) { close(); return; }
-    if (!canSave || !imageContainer || dimensions.width <= 1 || dimensions.height <= 1) {
+    if (!canSave || !imageContainer || !imageReady) {
       setNotice('Chưa có ảnh mặt bằng sẵn sàng để hiệu chuẩn.'); return;
     }
-    setPoints([]); setNotice('Chọn 2 điểm chuẩn trên mặt bằng.');
+    setDraftSource(sourceRevision); setPoints([]); setNotice('Chọn 2 điểm chuẩn trên mặt bằng.');
     setActive(true); onActiveChange?.(true);
   };
   useEffect(() => {
@@ -80,7 +89,7 @@ export const FloorMetricCalibration: React.FC<Props> = ({
   }, [launch?.token]);
   const clickPoint = (event: React.PointerEvent<SVGSVGElement>) => {
     event.preventDefault(); event.stopPropagation();
-    if (!imageContainer || event.button > 0) return;
+    if (!imageContainer || !imageReady || draftSource !== sourceRevision || !canSave || event.button > 0) return;
     const rect = imageContainer.getBoundingClientRect();
     const raw = floorPoint(mapDirectHighlightPointerToFloor(event.clientX,event.clientY,rect,rotation));
     const viewport = rotation === 90 || rotation === 270 ? {width:rect.height,height:rect.width} : {width:rect.width,height:rect.height};
@@ -94,8 +103,8 @@ export const FloorMetricCalibration: React.FC<Props> = ({
     setNotice('');
   };
   const save = () => {
-    if (!canSave || !draft || !active) { setNotice('Đoạn chuẩn hoặc số mét không hợp lệ.'); return; }
-    if (!window.confirm(`Lưu hiệu chuẩn ${actualDistance} m cho tầng “${floor.floorName}”? Không thay đổi khối lượng đã nhập.`)) return;
+    if (!canSave || !draft || !active || !imageReady || draftSource !== sourceRevision) { setNotice('Đoạn chuẩn hoặc số mét không hợp lệ.'); return; }
+    if (!window.confirm(`Lưu hiệu chuẩn ${actualDistance} m cho tầng “${floor.floorName}”? Khối lượng có công thức liên kết có thể tự cập nhật; số nhập tay và phần đã chốt được giữ nguyên. Tiếp tục?`)) return;
     onSave(floor.id,draft);
     close();
   };
