@@ -125,6 +125,7 @@ interface CrewTabProps {
   inventory?: InventoryItem[];
   materialNorms?: MaterialNorm[];
   onAddCrewRecord: (record: Omit<CrewRecord, 'id'> & { id?: string }) => void;
+  onSaveCrewLogWithTeam?: (record: CrewRecord, editing: boolean) => boolean | Promise<boolean>;
   onUpdateCrewRecord: (id: string, record: Partial<CrewRecord>) => void;
   onDeleteCrewRecord: (id: string) => void;
   onDeleteMultipleCrewRecords?: (ids: string[]) => void;
@@ -254,6 +255,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   inventory = [],
   materialNorms = [],
   onAddCrewRecord,
+  onSaveCrewLogWithTeam,
   onUpdateCrewRecord,
   onDeleteCrewRecord,
   onDeleteMultipleCrewRecords,
@@ -928,7 +930,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   const [tNotes, setTNotes] = useState('');
 
   // Synchronize Daily Log Form values
-  const [activeLogEntityId, setActiveLogEntityId] = useState<string>(`crew_${Date.now()}`);
+  const [activeLogEntityId, setActiveLogEntityId] = useState<string>(()=>createEntityId('crew'));
+  const crewSaveBusyRef = useRef(false);
+  const [crewSaveBusy,setCrewSaveBusy] = useState(false);
   const [crewSaveMessage, setCrewSaveMessage] = useState('');
 
   useEffect(() => {
@@ -968,7 +972,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       
       setNotes(editingRecord.notes || '');
     } else {
-      setActiveLogEntityId(`crew_${Date.now()}`);
+      setActiveLogEntityId(createEntityId('crew'));
       setCrewSaveMessage('');
       const defaultGroupId = normalizedStructureConfig.defaultGroupId;
       setSelectedLogStructureGroupId(defaultGroupId);
@@ -1004,7 +1008,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       setTaskDescription('');
       setNotes('');
     }
-  }, [isActive, editingRecord, showAddLogModal, floorPlans, teams, normalizedStructureConfig]);
+  // Refreshing the team directory must not reset a live draft / Save & Continue.
+  }, [isActive, editingRecord, showAddLogModal, floorPlans, normalizedStructureConfig]);
 
   // Synchronize Manage Team Form values
   useEffect(() => {
@@ -1286,9 +1291,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
   }, [selectedTeamForDetail, inventory]);
 
   // Handle Daily Log Submission
-  const handleLogSubmit = (e: React.FormEvent) => {
+  const handleLogSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canOperate) return;
+    if (!canOperate || crewSaveBusyRef.current) return;
     const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
     const saveAndContinue = !editingRecord && submitter?.value === 'continue';
     if (!teamName.trim()) {
@@ -1372,6 +1377,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       });
     });
 
+    setFloorWorks(finalFloorWorks); // preserve typed sub-items if cloud validation fails
     const firstFw = finalFloorWorks[0];
     const floorId = firstFw ? firstFw.floorId : selectedFloorId;
     const floorName = finalFloorWorks.length > 0
@@ -1409,11 +1415,30 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       notes: notes.trim() || undefined
     };
 
-    if (editingRecord) {
-      onUpdateCrewRecord(editingRecord.id, recordData);
-      setEditingRecord(null);
+    if (onSaveCrewLogWithTeam) {
+      crewSaveBusyRef.current = true;
+      setCrewSaveBusy(true);
+      try {
+        if (!await onSaveCrewLogWithTeam({...recordData,teamId:teamId || undefined,id:editingRecord?.id || activeLogEntityId},!!editingRecord)) return;
+      } catch (error) {
+        alert(error instanceof Error ? error.message : String(error));
+        return;
+      } finally {
+        crewSaveBusyRef.current = false;
+        setCrewSaveBusy(false);
+      }
+      if (editingRecord) setEditingRecord(null);
     } else {
-      onAddCrewRecord({ ...recordData, id: activeLogEntityId });
+      if (canManageTeamDirectory && !finalTeamId) {
+        alert('Chức năng lưu đội mới chưa sẵn sàng. Chưa lưu ghi nhận.');
+        return;
+      }
+      if (editingRecord) {
+        onUpdateCrewRecord(editingRecord.id, recordData);
+        setEditingRecord(null);
+      } else {
+        onAddCrewRecord({ ...recordData, id: activeLogEntityId });
+      }
     }
     if (saveAndContinue) {
       // A follow-up crew record is a NEW independent entity. Never reuse the
@@ -2959,8 +2984,9 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               <h3 className="font-bold text-sm">
                 {editingRecord ? '✍️ Sửa Ghi Nhận Quân Số' : '👷 Ghi Nhận Quân Số Mới'}
               </h3>
-              <button 
+              <button disabled={crewSaveBusy}
                 onClick={async () => {
+                  if (crewSaveBusyRef.current) return;
                   if (!editingRecord && activeLogEntityId && projectId) {
                     try {
                       await deleteEntityPhotos(projectId, 'crewRecord', activeLogEntityId);
@@ -2977,7 +3003,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
             </div>
 
             {/* Modal Form */}
-            <form data-hnl-pc-v3-form="crew-log" onSubmit={handleLogSubmit} className="flex-1 min-h-0 p-4 lg:p-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 overflow-y-auto overscroll-contain">
+            <form data-hnl-pc-v3-form="crew-log" aria-busy={crewSaveBusy} onSubmit={handleLogSubmit} className="flex-1 min-h-0 p-4 lg:p-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 overflow-y-auto overscroll-contain">
               {/* Date (Informative) */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Ngày Ghi Nhận</label>
@@ -3008,17 +3034,18 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Đội Thi Công</label>
                 <div className="space-y-1.5">
                   <select
-                    value={teams.some((t) => t.id === teamId) ? teams.find(t => t.id === teamId)?.name : (teams.some((t) => t.name === teamName) ? teamName : 'Khác')}
+                    value={teams.some(t=>t.id===teamId) ? teamId : ''}
                     onChange={(e) => {
                       const selectedVal = e.target.value;
-                      if (selectedVal === 'Khác') {
+                      if (!selectedVal) {
                         setTeamName('');
                         setTeamId('');
+                        setLeaderName('');
                       } else {
-                        setTeamName(selectedVal);
-                        // Auto-populate leaderName, workerCount, and teamId
-                        const selectedTeam = teams.find((t) => t.name === selectedVal);
+                        // Select by durable ID, not potentially ambiguous display name.
+                        const selectedTeam = teams.find(t=>t.id===selectedVal);
                         if (selectedTeam) {
+                          setTeamName(selectedTeam.name);
                           setTeamId(selectedTeam.id || '');
                           setLeaderName(selectedTeam.leader);
                           setWorkerCount(selectedTeam.defaultCount);
@@ -3033,12 +3060,12 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                     className="w-full text-xs bg-white border border-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-semibold"
                   >
                     {teams.map((t) => (
-                      <option key={t.id} value={t.name}>{t.name} ({t.leader})</option>
+                      <option key={t.id} value={t.id}>{t.name} ({t.leader})</option>
                     ))}
-                    <option value="Khác">-- Tự nhập tên đội khác --</option>
+                    <option value="">-- Tự nhập tên đội khác --</option>
                   </select>
 
-                  {(!teams.some((t) => t.id === teamId || t.name === teamName) || teamName === '') && (
+                  {(!teams.some(t=>t.id===teamId) || teamName === '') && (
                     <input 
                       type="text"
                       placeholder="Nhập tên đội thi công tùy chỉnh..."
@@ -3314,14 +3341,14 @@ export const CrewTab: React.FC<CrewTabProps> = ({
               {crewSaveMessage && <p role="status" className="rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 md:col-span-2 lg:col-span-4">{crewSaveMessage}</p>}
               <div data-hnl-pc-v35-actions="crew-save" className="sticky bottom-0 z-10 -mx-4 lg:-mx-5 -mb-4 lg:-mb-5 mt-1 flex gap-2.5 border-t border-slate-100 bg-white px-4 lg:px-5 py-3 md:col-span-2 lg:col-span-4">
                 {!editingRecord && (
-                  <button type="submit" name="submitMode" value="continue"
+                  <button disabled={crewSaveBusy} type="submit" name="submitMode" value="continue"
                     className="flex-1 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100">
                     Lưu &amp; thêm tiếp
                   </button>
                 )}
-                <button type="submit" name="submitMode" value="close"
+                <button disabled={crewSaveBusy} type="submit" name="submitMode" value="close"
                   className="flex-1 rounded-lg bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-indigo-500">
-                  {editingRecord ? 'Lưu thay đổi' : 'Lưu & đóng'}
+                  {crewSaveBusy ? 'Đang lưu…' : editingRecord ? 'Lưu thay đổi' : 'Lưu & đóng'}
                 </button>
               </div>
             </form>

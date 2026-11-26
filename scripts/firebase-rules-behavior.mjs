@@ -919,6 +919,36 @@ try {
   await expectDenied('VIEWER cannot forge derived warehouse balance', () => updateDoc(legacyBalanceRef, {
     onHand: 999, revision: 3, updatedAt: balanceNow + 2, updatedByUid: viewerUid,
   }));
+  // Actual new-team pair transaction: two independent SDK sessions, same
+  // deterministic team document. Only one pair may commit, no orphan log.
+  const {commitCrewAutoTeamPair}=await import('../src/lib/crewAutoTeamCloud.ts');
+  await signIn(ownerEmail);
+  const teamPairApp=initializeApp({apiKey:'demo-key',authDomain:projectId+'.firebaseapp.com',projectId},'crew-pair-'+nonce);
+  const pairAuth=getAuth(teamPairApp);
+  const pairDb=getFirestore(teamPairApp);
+  connectAuthEmulator(pairAuth,'http://127.0.0.1:9099',{disableWarnings:true});
+  connectFirestoreEmulator(pairDb,'127.0.0.1',8080);
+  try {
+    await signInWithEmailAndPassword(pairAuth,ownerEmail,password);
+    const pairTime=Date.now(), pairTeam={id:'TEAM-AUTO-PAIR',name:'Đội Pair',leader:'A',defaultCount:7,createdAt:pairTime,createdByUid:ownerUid,updatedAt:pairTime,revision:1,deleted:false,deletedAt:null};
+    const pairLog=(id,team=pairTeam)=>({id,teamId:team.id,teamName:team.name,leaderName:team.leader,date:'2026-11-26',workerCount:7,taskDescription:'',createdAt:pairTime,createdByUid:ownerUid,updatedAt:pairTime,revision:1,deleted:false,deletedAt:null});
+    const pairResults=await Promise.allSettled([commitCrewAutoTeamPair(db,pid,pairTeam,pairLog('CREW-PAIR-A')),commitCrewAutoTeamPair(pairDb,pid,pairTeam,pairLog('CREW-PAIR-B'))]);
+    assert.equal(pairResults.filter(x=>x.status==='fulfilled').length,1);
+    assert.equal((await getDocsFromServer(collection(db,'projects',pid,'teams'))).docs.filter(s=>s.id===pairTeam.id).length,1);
+    const pairLogs=(await getDocsFromServer(collection(db,'projects',pid,'crew_records'))).docs.filter(s=>s.id==='CREW-PAIR-A'||s.id==='CREW-PAIR-B');
+    assert.equal(pairLogs.length,1);assert.equal(pairLogs[0].data().teamId,pairTeam.id);
+    const deniedTeam={...pairTeam,id:'TEAM-AUTO-DENIED',name:'Đội Denied'};
+    await signIn(editorEmail);
+    await expectDenied('EDITOR cannot create team through atomic crew pair',()=>commitCrewAutoTeamPair(db,pid,deniedTeam,pairLog('CREW-PAIR-DENIED',deniedTeam)));
+    await signIn(ownerEmail);
+    assert.equal((await getDoc(doc(db,'projects',pid,'teams',deniedTeam.id))).exists(),false);
+    assert.equal((await getDoc(doc(db,'projects',pid,'crew_records','CREW-PAIR-DENIED'))).exists(),false);
+    const conflictTeam={...pairTeam,id:'TEAM-AUTO-CONFLICT',name:'Đội Conflict'};
+    const conflictLog=pairLog(pairLogs[0].id,conflictTeam);
+    await assert.rejects(()=>commitCrewAutoTeamPair(db,pid,conflictTeam,conflictLog));
+    assert.equal((await getDoc(doc(db,'projects',pid,'teams',conflictTeam.id))).exists(),false);
+    console.log('PASS CREW AUTO TEAM transaction: two SDK sessions, one pair, denied and conflict leave no orphan');
+  } finally {await deleteApp(teamPairApp);}
   await signIn(editorEmail);
 
   const crewRef = doc(db, 'projects', pid, 'crew_records', 'CREW-RULE-1');
