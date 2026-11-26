@@ -4021,12 +4021,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                         frameStatus: detail.frameStatus,
                                         boardStatus: detail.boardStatus,
                                         inspectionStatus: detail.inspectionStatus,
-                                        subItems: (room.subItems || []).filter((sub) => {
-                                          const categoryMatch = sub.workCategoryId
-                                            ? sub.workCategoryId === detail.workCategoryId
-                                            : (sub.category || room.workCategory) === detail.workCategoryName;
-                                          return categoryMatch && (isTeamMatch(sub.assignedTeam, team, sub.teamId) || (!sub.assignedTeam && !sub.teamId && isTeamMatch(room.assignedTeam, team, room.teamId)));
-                                        }),
+                                        subItems: (stat.teamSubItemDetails || []).filter((sub) => sub.roomId === room.id && sub.parentUnit === detail.unit &&
+                                          (detail.workCategoryId ? sub.workCategoryId === detail.workCategoryId : !sub.workCategoryId && sub.workCategoryName === detail.workCategoryName)),
                                       })),
                                     };
 
@@ -4076,12 +4072,12 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                               return (
                                                 <div key={idx} className="pb-3 last:pb-0 border-b last:border-0 border-slate-100 space-y-1.5">
                                                   {/* Category Title Header */}
-                                                  <div className="flex justify-between items-center text-[11px] font-bold text-slate-800">
-                                                    <span className="truncate max-w-[150px] font-semibold text-slate-700 flex items-center gap-1.5">
-                                                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0"></span>
-                                                      {c.name}
+                                                  <div data-hnl-team-category-row="true" className="flex flex-wrap justify-between items-start gap-x-2 gap-y-1 min-w-0 text-[11px] font-bold text-slate-800">
+                                                    <span className="min-w-0 flex-[1_1_160px] font-semibold text-slate-700 flex items-start gap-1.5">
+                                                      <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0"></span>
+                                                      <span className="min-w-0 [overflow-wrap:anywhere]" style={{overflowWrap:"anywhere"}} title={c.name}>{c.name}</span>
                                                     </span>
-                                                    <span className="bg-slate-50 text-slate-600 text-[10px] px-1.5 py-0.5 rounded font-medium border border-slate-200/40">
+                                                    <span className="shrink-0 ml-auto whitespace-nowrap bg-slate-50 text-slate-600 text-[10px] px-1.5 py-0.5 rounded font-medium border border-slate-200/40">
                                                       {formatDecimal(c.vol)} {c.unit}
                                                     </span>
                                                   </div>
@@ -4093,8 +4089,8 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                                         <div className="text-[9.5px] font-medium text-slate-400 flex items-center gap-1">
                                                           <span>Hạng mục con:</span>
                                                         </div>
-                                                        <div className="grid grid-cols-1 gap-1 text-[10px] text-slate-600 max-h-[140px] overflow-y-auto">
-                                                          {c.subItems.map((sub, sIdx) => {
+                                                        <div data-hnl-team-subitem-list="true" className="grid grid-cols-1 min-w-0 gap-1 text-[10px] text-slate-600">
+                                                          {c.subItems.map((sub) => {
                                                             const hasStarted = sub.status && sub.status !== 'Chưa làm';
                                                             const isDone = sub.status === 'Đã hoàn thành';
                                                             const isApproved = sub.inspectionStatus === 'Đạt nghiệm thu';
@@ -4120,11 +4116,12 @@ export const CrewTab: React.FC<CrewTabProps> = ({
                                                             }
 
                                                             return (
-                                                              <div key={sIdx} className="flex justify-between items-center py-0.5 border-b border-dashed border-slate-100/60 last:border-0 hover:bg-slate-50/50 transition">
-                                                                <span className="truncate max-w-[130px] font-medium">• {sub.name}</span>
-                                                                <div className="flex items-center gap-1">
-                                                                  <span className={`px-1.5 py-0.2 rounded text-[8px] ${statusColorStr}`}>{statusTextStr}</span>
-                                                                  <span className={`px-1.5 py-0.2 rounded text-[8px] ${inspectionColorStr}`}>{inspectionTextStr}</span>
+                                                              <div key={sub.subItemId} data-hnl-team-subitem-row="true" className="flex flex-wrap justify-between items-start min-w-0 gap-x-2 gap-y-1 py-0.5 border-b border-dashed border-slate-100/60 last:border-0 hover:bg-slate-50/50 transition">
+                                                                <span className="min-w-0 flex-[1_1_130px] [overflow-wrap:anywhere] font-medium" style={{overflowWrap:"anywhere"}} title={sub.name}>• {sub.name}</span>
+                                                                <div className="flex flex-wrap justify-end items-center gap-1 ml-auto min-w-0 max-w-full">
+                                                                  <span data-hnl-team-subitem-quantity="true" className="font-semibold text-emerald-700 whitespace-nowrap tabular-nums" title={sub.quantity === null ? 'Chưa nhập khối lượng' : undefined}>{sub.quantity === null ? '—' : formatDecimal(sub.quantity)} {sub.unit}</span>
+                                                                  <span className={`px-1.5 py-0.2 rounded text-[9px] ${statusColorStr}`}>{statusTextStr}</span>
+                                                                  <span className={`px-1.5 py-0.2 rounded text-[9px] ${inspectionColorStr}`}>{inspectionTextStr}</span>
                                                                 </div>
                                                               </div>
                                                             );

@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import * as XLSX from 'xlsx';
+import fs from 'node:fs';
+import { appendTeamSubItemExcelSheet } from '../src/utils/excelExport';
 import type { InventoryItem, MaterialNorm, RoomProgressItem, TeamInfo, WorkVolume } from '../src/types';
 import {
   canonicalWorkCategoryId,
@@ -288,3 +291,55 @@ assert.equal(partlyOrphanedTeam.find((line) => line.materialName === 'Vít độ
 console.log('PASS team materials: orphaned or partially orphaned norm cannot generate demand');
 
 console.log('LINKAGE CALCULATION GOLDEN PASS');
+const detailRoom = room('R-SUB','F1',{'CAT-F1':100},{
+  workCategoryId:'CAT-F1', workCategory:w1.title, teamId:teamA.id, assignedTeam:teamA.name,
+  subItems:[
+    {id:'S-K',name:'Khung',workCategoryId:'CAT-F1',teamId:teamA.id,assignedTeam:teamB.name,workVolume:120.25,volumeUnit:'m2',status:'Đang làm'},
+    {id:'S-T',name:'Tấm',workCategoryId:'CAT-F1',teamId:teamB.id,assignedTeam:teamA.name,workVolume:115,volumeUnit:'m²',status:'Đã hoàn thành',inspectionStatus:'Đạt nghiệm thu'},
+    {id:'S-0',name:'Ty',category:w1.title,workVolume:0,volumeUnit:'Cái',status:'Chưa làm',targetDate:'2026-11-30'},
+    {id:'S-L',name:'Legacy',category:w1.title,assignedTeam:teamA.name,progressWeight:10,status:'Chưa làm'},
+    {id:'S-O',name:'Orphan',workCategoryId:'CAT-F1',teamId:'MISSING',assignedTeam:teamA.name,workVolume:999,status:'Chưa làm'},
+    {id:'S-D',name:'Duplicate',workCategoryId:'CAT-F1',teamId:teamA.id,workVolume:3,status:'Chưa làm'},
+    {id:'S-D',name:'Duplicate',workCategoryId:'CAT-F1',teamId:teamA.id,workVolume:4,status:'Chưa làm'},
+    {id:'S-W',name:'Wrong category',workCategoryId:'MISSING',category:w1.title,teamId:teamA.id,workVolume:888,status:'Chưa làm'},
+  ],
+});
+const beforeDetailRoom=JSON.stringify(detailRoom);
+const detailStats=calculateTeamStatistics({teams:[teamA,teamB],roomProgressList:[detailRoom,{...detailRoom,id:'DELETED',deletedAt:1}],defects:[],crewRecords:[],workVolumes:[w1]});
+const aDetails=detailStats[teamA.id].teamSubItemDetails || [];
+const bDetails=detailStats[teamB.id].teamSubItemDetails || [];
+assert.deepEqual(aDetails.map(x=>[x.subItemId,x.quantity,x.unit]),[['S-K',120.25,'m²'],['S-0',0,'Cái'],['S-L',null,'m²']]);
+assert.deepEqual(bDetails.map(x=>[x.subItemId,x.quantity]),[['S-T',115]]);
+assert.equal(JSON.stringify(detailRoom),beforeDetailRoom,'detail view must not mutate records');
+const ambiguous=calculateTeamStatistics({teams:[teamA,teamB,{...teamA,id:'OTHER'}],roomProgressList:[detailRoom],defects:[],crewRecords:[],workVolumes:[w1]});
+assert.ok(!(ambiguous[teamA.id].teamSubItemDetails||[]).some(x=>x.subItemId==='S-L'),'ambiguous legacy team name must not be assigned twice');
+assert.ok((ambiguous[teamA.id].teamSubItemDetails||[]).some(x=>x.subItemId==='S-0'),'unassigned stage inherits authoritative room team ID');
+const book=XLSX.utils.book_new();
+for(let i=1;i<=8;i++) XLSX.utils.book_append_sheet(book,XLSX.utils.aoa_to_sheet([['existing']]),'0'+i+'-Existing');
+appendTeamSubItemExcelSheet(book,[...aDetails,...bDetails]);
+assert.equal(book.SheetNames.length,9);
+const readBack=XLSX.read(XLSX.write(book,{type:'array',bookType:'xlsx'}),{type:'array',cellStyles:true,cellFormula:true});
+const sheet=readBack.Sheets['09-Chi tiết hạng mục con'];
+const records=XLSX.utils.sheet_to_json<Record<string,unknown>>(sheet,{defval:''});
+assert.equal(records.length,4);
+assert.equal(records[0]['Khối Lượng Con'],120.25);
+assert.equal(records[1]['Khối Lượng Con'],0);
+assert.equal(records[2]['Khối Lượng Con'],'');
+assert.equal(records[3]['__teamId'],teamB.id);
+assert.equal(records[3]['Nghiệm Thu'],'Đạt nghiệm thu');
+assert.equal(records[1]['Hạn Hoàn Thành'],'2026-11-30');
+assert.ok(sheet['!cols']?.slice(1,6).every(col=>col.hidden),'linkage ID columns hidden');
+assert.equal(sheet['!autofilter']?.ref,sheet['!ref']);
+const emptyBook=XLSX.utils.book_new();
+appendTeamSubItemExcelSheet(emptyBook,[]);
+assert.equal(XLSX.utils.sheet_to_json(emptyBook.Sheets['09-Chi tiết hạng mục con']).length,0);
+const teamUI=fs.readFileSync('src/components/CrewTabBase.tsx','utf8');
+const categoryUI=teamUI.slice(teamUI.indexOf('data-hnl-team-category-row="true"'),teamUI.indexOf('{/* Dates and Notes */}'));
+assert.ok(categoryUI.includes('data-hnl-team-subitem-quantity="true"'));
+assert.ok(categoryUI.includes('sub.quantity === null'));
+assert.ok(categoryUI.includes('flex-wrap') && categoryUI.includes('[overflow-wrap:anywhere]'));
+assert.doesNotMatch(categoryUI,/truncate|max-w-\[150px\]|max-w-\[130px\]|max-h-\[140px\]/);
+const reportSource=fs.readFileSync('src/utils/excelExport.ts','utf8');
+assert.ok(reportSource.includes('appendTeamSubItemExcelSheet(wb, stat.teamSubItemDetails || [])'));
+assert.ok(reportSource.includes('appendTeamSubItemExcelSheet(wb, activeTeams.flatMap'));
+console.log('TEAM SUBITEM DETAILS GOLDEN PASS: exact quantity/unit, team/category IDs, zero vs missing, no duplicates, existing totals untouched, XLSX readback and responsive layout markers');
