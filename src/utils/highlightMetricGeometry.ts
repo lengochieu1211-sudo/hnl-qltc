@@ -29,7 +29,7 @@ export function createFloorMetricCalibration(
   floor: FloorPlan, image: ImageDimensions, first: Point2D, second: Point2D, actualMetres: number,
   now = Date.now(),
 ): FloorMetricCalibration | null {
-  if (!floor.id || !floor.imageUrl || !Number.isSafeInteger(image.width) || !Number.isSafeInteger(image.height) ||
+  if (floor.imageOfflineStale || !floor.id || !floor.imageUrl || !Number.isSafeInteger(image.width) || !Number.isSafeInteger(image.height) ||
     image.width <= 1 || image.height <= 1 || !inFloor(first) || !inFloor(second) ||
     !finite(actualMetres) || actualMetres <= 0 || actualMetres > 1_000_000) return null;
   const measuredPx = pointDistancePx(first, second, image);
@@ -45,6 +45,7 @@ export function createFloorMetricCalibration(
 export function getValidFloorMetricCalibration(
   floor: FloorPlan, image: ImageDimensions,
 ): { valid: true; value: FloorMetricCalibration } | { valid: false; reason: string } {
+  if (floor.imageOfflineStale) return { valid: false, reason: 'Ảnh mặt bằng offline đã lỗi thời; cần đồng bộ đúng ảnh trước khi đo.' };
   const c = floor.highlightMetricCalibration;
   if (!c) return { valid: false, reason: 'Mặt bằng chưa hiệu chuẩn tỷ lệ.' };
   if (c.floorId !== floor.id || c.sourceKey !== floorMetricSourceKey(floor) ||

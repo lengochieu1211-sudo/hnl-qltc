@@ -63,7 +63,13 @@ expectedMetric(measure('linear'),12);
 expectedMetric(measure('linear',line),6);
 assert.equal(measure('linear',{...line,positionLocked:true}).valid,false);
 assert.equal(measure('linear',line,{...floor,imageRevision:2}).valid,false);
-console.log('Explicit basic quantity measurement: PASS (16 cases)');
+const staleFloor = {...floor,imageOfflineStale:true};
+assert.equal(createFloorMetricCalibration(staleFloor,image,{x:0,y:0},{x:10,y:0},1),null);
+assert.equal(measure('area',room,staleFloor).valid,false);
+assert.equal(measure('perimeter',room,staleFloor).valid,false);
+assert.equal(measure('length',line,staleFloor).valid,false);
+expectedMetric(measure('area',room,{...staleFloor,imageOfflineStale:false}),8);
+console.log('Explicit basic quantity measurement: PASS (21 cases, stale source + reconnect)');
 
 const catalog = [{id:'work1',workCategoryId:'cat1',title:'Trần',floorId:floor.id,unit:'m²'}] as WorkVolume[];
 const linked:RoomProgressItem={...room,workCategory:'Trần',workCategoryId:'cat1',workVolume:8,volumeUnit:'m²',categoryVolumes:{'Trần':8},categoryVolumeUnits:{'Trần':'m²'},
@@ -105,6 +111,12 @@ assert.ok(newCalibration);
 const recalibrated=recalculateLinkedRoomQuantities(linked,{...floor,highlightMetricCalibration:newCalibration},catalog);
 assert.equal(recalibrated.workVolume,32);
 assert.equal(recalibrated.subItems?.[0].workVolume,64);
+assert.equal(recalculateLinkedRoomQuantities(resized,{...floor,imageOfflineStale:true},catalog),resized);
+const calibrationUi=fs.readFileSync('src/components/FloorMetricCalibration.tsx','utf8');
+assert.match(calibrationUi,/draftSource === sourceRevision/);
+assert.match(calibrationUi,/image\.getAttribute\('src'\) === floor\.imageUrl/);
+assert.match(calibrationUi,/Khối lượng có công thức liên kết có thể tự cập nhật/);
+assert.doesNotMatch(calibrationUi,/Không thay đổi khối lượng đã nhập/);
 const mdLinked: RoomProgressItem={...room,workCategory:'Trần',workCategoryId:'cat1',workVolume:12,volumeUnit:'md',categoryVolumes:{'Trần':12},categoryVolumeUnits:{'Trần':'md'},quantityFormulaSettings:{'main:id:cat1':{expression:'L',auto:true,categoryKey:'id:cat1',unit:'md',value:12}}};
 const mdUpdated=recalculateLinkedRoomQuantities({...mdLinked,width:60},floor,[{...catalog[0],unit:'md'}]);
 assert.equal(mdUpdated.workVolume,16);

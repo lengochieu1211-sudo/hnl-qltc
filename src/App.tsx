@@ -6859,7 +6859,7 @@ function AuthenticatedApp() {
         // Cách 2: refuse a calibration prepared against an outdated floor image.
         // This is a local guard only; remote multi-user CAS remains a separate gate.
         if (updates.highlightMetricCalibration && (
-          updates.highlightMetricCalibration.floorId !== fp.id ||
+          fp.imageOfflineStale || updates.highlightMetricCalibration.floorId !== fp.id ||
           updates.highlightMetricCalibration.sourceKey !== floorMetricSourceKey(fp))) return fp;
         return updates.highlightMetricCalibration
           ? { ...fp, ...updates, updatedAt: Math.max(Date.now(), Number(fp.updatedAt || 0) + 1),
