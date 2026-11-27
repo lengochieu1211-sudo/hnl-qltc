@@ -733,6 +733,10 @@ assert(navSource.includes("touchAction: 'manipulation'"), 'Primary navigation mu
 assert(navSource.includes('onPointerDown={() => previewTab(tab.id)}'), 'Primary navigation must provide immediate pressed feedback before click activation');
 assert(navSource.includes("active:scale-[0.96]") && navSource.includes("active:opacity-75"), 'Mobile primary navigation must expose visible touch feedback');
 assert(multiProjectAccessUi.includes('Nhiều dự án'), 'Security Center must expose central multi-project access management');
+const multiMemberEmailInput = multiProjectAccessUi.match(/<input\b[^]*?value=\{targetEmail\}[^]*?className="([^"]+)"[^]*?\/>/)?.[1] || '';
+assert(multiMemberEmailInput.includes('text-sm') && multiMemberEmailInput.includes('px-3 py-2.5'), 'Multi-project email must preserve the original mobile typography and padding');
+assert(multiProjectAccessUi.includes('data-hnl-multi-project-email="true"'), 'PC email typography must target only the multi-project email control');
+assert(/@media \(min-width: 1024px\) and \(hover: hover\) and \(pointer: fine\) \{\s*input\[data-hnl-multi-project-email="true"\] \{\s*font-size: \.75rem;\s*line-height: 1rem;/.test(hnlThemeCss), 'Multi-project email typography must shrink only for desktop fine-pointer screens');
 assert(securityModalUi.includes('Thành viên & phân quyền') && securityModalUi.includes('Theo dự án') && securityModalUi.includes('Nhiều dự án'), 'Security Center must unify member access under project and multi-project tabs');
 assert(securityModalUi.includes('value={selectedPid}') && securityModalUi.includes('setSelectedPid'), 'Per-project member view must retain project switching');
 assert(multiProjectAccessUi.includes('Không cấp quyền'), 'Central access manager must support explicit per-project revoke state');
