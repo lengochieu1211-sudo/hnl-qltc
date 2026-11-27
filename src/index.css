@@ -829,3 +829,59 @@ details[open] > summary.hnl-native-disclosure::after { transform: rotate(180deg)
     line-height: 1rem;
   }
 }
+
+/* Touch-only child quantity columns: keep the existing two rows, align their
+   fields and reserve a stable help-button column even when help is expanded. */
+@media (max-width: 1023px) and (pointer: coarse) {
+  [data-hnl-sub-quantity-group="true"] {
+    --hnl-sub-quantity-label-width: 4.25rem;
+    --hnl-sub-quantity-help-width: 1.25rem;
+    --hnl-sub-quantity-column-gap: .375rem;
+  }
+  [data-hnl-sub-quantity-group="true"] [data-hnl-subitem-editable-quantity] {
+    display: grid;
+    grid-template-columns: var(--hnl-sub-quantity-label-width) minmax(0, 1fr);
+    gap: var(--hnl-sub-quantity-column-gap);
+    align-items: start;
+  }
+  [data-hnl-subitem-editable-quantity] > span:first-child {
+    align-self: start;
+    padding-block-start: .25rem;
+  }
+  [data-hnl-subitem-editable-quantity] > [data-hnl-quantity-calculator] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--hnl-sub-quantity-help-width);
+    gap: var(--hnl-sub-quantity-column-gap);
+    align-items: center;
+    width: 100%;
+  }
+  [data-hnl-subitem-editable-quantity] > [data-hnl-quantity-calculator] > input {
+    width: 100%;
+    min-width: 0;
+    grid-column: 1;
+  }
+  [data-hnl-subitem-editable-quantity] .hnl-quantity-touch-help { grid-column: 2; }
+  [data-hnl-subitem-editable-quantity] > [data-hnl-quantity-calculator] > :is([role="alert"], [role="note"]) {
+    grid-column: 1 / -1;
+    overflow-wrap: anywhere;
+  }
+  [data-hnl-sub-quantity-group="true"] [data-hnl-sub-unit-spacing="true"] > label {
+    display: grid;
+    grid-template-columns: var(--hnl-sub-quantity-label-width) minmax(0, 1fr) var(--hnl-sub-quantity-help-width);
+    gap: var(--hnl-sub-quantity-column-gap);
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+  }
+  [data-hnl-sub-unit-spacing="true"] > label > select[data-hnl-sub-count-unit="true"] {
+    grid-column: 2;
+    margin-left: 0;
+    width: 100%;
+    min-width: 0;
+  }
+  [data-hnl-sub-unit-spacing="true"] > [data-hnl-sub-unit-custom-editor] {
+    flex-wrap: wrap;
+    min-width: 0;
+    max-width: 100%;
+  }
+}

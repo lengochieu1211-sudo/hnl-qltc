@@ -217,3 +217,16 @@ assert.equal(idStorageUpdated.categoryVolumes?.cat1,12);
 assert.equal(idStorageUpdated.subItems?.[0].workVolume,24);
 assert.equal(previewFloorCalibrationQuantities(floor,newCalibration,[mirrorConflict,primaryConflict],catalog)?.changes.length,0);
 console.log('Primary identity / quantity mirror fail-closed Golden PASS');
+
+// Mobile-only child KL/ĐVT alignment: equal label/field tracks, reserved help
+// track and wrapping feedback, without changing fine-pointer PC markup.
+const mobileSubQuantityCss=helpCss.slice(helpCss.indexOf('/* Touch-only child quantity columns:'));
+assert.ok(mobileSubQuantityCss.startsWith('/* Touch-only child quantity columns:'));
+assert.ok(mobileSubQuantityCss.includes('@media (max-width: 1023px) and (pointer: coarse)'));
+assert.ok(mobileSubQuantityCss.includes('grid-template-columns: var(--hnl-sub-quantity-label-width) minmax(0, 1fr);'));
+assert.ok(mobileSubQuantityCss.includes('grid-template-columns: minmax(0, 1fr) var(--hnl-sub-quantity-help-width);'));
+assert.ok(mobileSubQuantityCss.includes('grid-template-columns: var(--hnl-sub-quantity-label-width) minmax(0, 1fr) var(--hnl-sub-quantity-help-width);'));
+assert.match(mobileSubQuantityCss,/select\[data-hnl-sub-count-unit="true"\] \{\s*grid-column: 2;\s*margin-left: 0;\s*width: 100%;\s*min-width: 0;/);
+assert.ok(mobileSubQuantityCss.includes('grid-column: 1 / -1;'));
+assert.ok(modal.includes('data-hnl-sub-unit-spacing="true"'));
+console.log('Mobile child quantity column alignment source Golden PASS');
