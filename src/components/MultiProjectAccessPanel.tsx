@@ -240,6 +240,7 @@ export const MultiProjectAccessPanel: React.FC = () => {
       <div className="flex flex-col sm:flex-row gap-2">
         <input
           type="email"
+          data-hnl-multi-project-email="true"
           value={targetEmail}
           onChange={(event) => setTargetEmail(event.target.value)}
           onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void loadAccess(); } }}
