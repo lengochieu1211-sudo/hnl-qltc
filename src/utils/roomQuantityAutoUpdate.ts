@@ -41,6 +41,15 @@ export function recalculateLinkedRoomQuantities(room:RoomProgressItem,floor:Floo
     if(savedUnit&&!areSameUnit(savedUnit,unit))return null;
     return {key,unit,categoryKey};
   };
+  // The legacy primary mirror and explicit ID must agree before any automatic
+  // update. Iterating a storage-key alias must not bypass a conflicting title/ID.
+  const primary=room.workCategory?resolve(room.workCategory):null;
+  if(room.workCategory && room.workCategoryId && (!primary ||
+    !catalogMatches(room.workCategory,catalog,room.floorId).some(v=>
+      (v.id===room.workCategoryId||v.workCategoryId===room.workCategoryId) &&
+      'id:'+(v.workCategoryId||v.id)===primary.categoryKey))) return room;
+  if(primary && ((Number.isFinite(room.workVolume) && room.workVolume!==volumes[primary.key]) ||
+    (room.volumeUnit && !areSameUnit(room.volumeUnit,primary.unit)))) return room;
   let nextVolumes=volumes, nextSettings=settings, nextWorkVolume=room.workVolume;
   const failedMain=new Set<string>();
   const evaluate=(setting:RoomQuantityFormulaSetting,actual:number|undefined,unit:string,parent?:number,parentUnit?:string)=>{
@@ -82,7 +91,6 @@ export function recalculateLinkedRoomQuantities(room:RoomProgressItem,floor:Floo
     if(value===volumes[resolved.key])continue;
     nextVolumes={...nextVolumes,[resolved.key]:value};
     nextSettings={...nextSettings,[id]:{...setting,value}};
-    const primary=room.workCategory?resolve(room.workCategory):null;
     if(primary?.categoryKey===resolved.categoryKey)nextWorkVolume=value;
   }
   let subChanged=false;
