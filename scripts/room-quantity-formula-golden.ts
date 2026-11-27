@@ -202,3 +202,18 @@ assert.ok(pinUi.includes('<span>Quên PIN? Đặt lại bằng Google</span>'));
 
 const conflictingStage={...resized,subItems:resized.subItems?.map(s=>s.id==='sub1'?{...s,workCategoryId:'other-cat'}:s)};
 assert.equal(recalculateLinkedRoomQuantities(conflictingStage,floor,catalog).subItems?.[0].workVolume,16,'explicit different ID must not recalculate by title');
+
+ // Explicit primary ID and existing official quantity mirror are authoritative.
+const primaryConflict:RoomProgressItem={...resized,workCategoryId:'other-cat',categoryVolumes:{cat1:8},categoryVolumeUnits:{cat1:'m²'}};
+assert.equal(recalculateLinkedRoomQuantities(primaryConflict,floor,catalog),primaryConflict,'ID storage alias must not bypass conflicting primary identity');
+const mirrorConflict:RoomProgressItem={...resized,workVolume:99};
+assert.equal(recalculateLinkedRoomQuantities(mirrorConflict,floor,catalog),mirrorConflict,'must preserve manually changed primary mirror and linked children');
+const mirrorUnitConflict:RoomProgressItem={...resized,volumeUnit:'m'};
+assert.equal(recalculateLinkedRoomQuantities(mirrorUnitConflict,floor,catalog),mirrorUnitConflict,'must preserve conflicting primary unit');
+const idStorage:RoomProgressItem={...resized,categoryVolumes:{cat1:8},categoryVolumeUnits:{cat1:'m²'}};
+const idStorageUpdated=recalculateLinkedRoomQuantities(idStorage,floor,catalog);
+assert.equal(idStorageUpdated.workVolume,12);
+assert.equal(idStorageUpdated.categoryVolumes?.cat1,12);
+assert.equal(idStorageUpdated.subItems?.[0].workVolume,24);
+assert.equal(previewFloorCalibrationQuantities(floor,newCalibration,[mirrorConflict,primaryConflict],catalog)?.changes.length,0);
+console.log('Primary identity / quantity mirror fail-closed Golden PASS');
