@@ -821,3 +821,11 @@ details[open] > summary.hnl-native-disclosure::after { transform: rotate(180deg)
     --hnl-room-control-min-height: 48px;
   }
 }
+
+/* Match the per-project member email font on PC only; keep touch layout unchanged. */
+@media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
+  input[data-hnl-multi-project-email="true"] {
+    font-size: .75rem;
+    line-height: 1rem;
+  }
+}
