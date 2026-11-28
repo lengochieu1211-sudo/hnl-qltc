@@ -1212,7 +1212,7 @@ export const GoogleConfigTab: React.FC<GoogleConfigTabProps> = ({
         )}
 
         {userRole === 'ADMIN' && roleResolved && FIREBASE_ONLY_RUNTIME && activeProjectId && (
-          <WarehouseDeletedVoucherRecovery key={activeProjectId} projectId={activeProjectId} onCountChange={setWarehouseTrashCount} purgeAllToken={warehousePurgeAllToken} />
+          <WarehouseDeletedVoucherRecovery key={activeProjectId} projectId={activeProjectId} materialNorms={Array.isArray(fullAppData?.materialNorms) ? fullAppData.materialNorms : []} onCountChange={setWarehouseTrashCount} purgeAllToken={warehousePurgeAllToken} />
         )}
 
         {userRole !== 'ADMIN' && (

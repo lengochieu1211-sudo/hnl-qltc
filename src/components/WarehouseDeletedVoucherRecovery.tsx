@@ -1,4 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import type { MaterialNorm } from '../types';
+import { useProjectEquipmentLabels } from '../hooks/useProjectEquipmentLabels';
+import { createWarehouseDisplayNames } from '../utils/warehouseDisplayName';
 import { RotateCcw, Trash2 } from 'lucide-react';
 import { listDeletedWarehouseVouchers, restoreWarehouseTransactionAtomic, discardWarehouseVoucherTrashAtomic, type DeletedWarehouseVoucher } from '../lib/warehouseTransactions';
 import { getWarehouseTrashExpiry } from '../utils/warehouseTrashPolicy';
@@ -9,9 +12,12 @@ import { formatDateDDMMYYYY } from '../utils/dateFormatter';
 /** In the common Trash card; warehouse-only atomic ledger transaction stays separate. */
 export const WarehouseDeletedVoucherRecovery: React.FC<{
   projectId: string;
+  materialNorms?: MaterialNorm[];
   onCountChange?: (count: number) => void;
   purgeAllToken?: number;
-}> = ({ projectId, onCountChange, purgeAllToken = 0 }) => {
+}> = ({ projectId, materialNorms = [], onCountChange, purgeAllToken = 0 }) => {
+  const equipment = useProjectEquipmentLabels(projectId, Boolean(projectId));
+  const names = useMemo(() => createWarehouseDisplayNames(materialNorms, equipment), [materialNorms, equipment]);
   const [rows, setRows] = useState<DeletedWarehouseVoucher[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -60,7 +66,7 @@ export const WarehouseDeletedVoucherRecovery: React.FC<{
     setBusy(true); setError('');
     let request = 0;
     try {
-      if (!(await confirmAsync(`Khôi phục phiếu ${row.type === 'in' ? 'Nhập' : 'Xuất'} ${row.materialName} (${formatDecimal(row.quantity)} ${row.unit})? Tồn kho sẽ được tính lại.`))) return;
+      if (!(await confirmAsync(`Khôi phục phiếu ${row.type === 'in' ? 'Nhập' : 'Xuất'} ${names.forItem(row)} (${formatDecimal(row.quantity)} ${row.unit})? Tồn kho sẽ được tính lại.`))) return;
       if (projectEpoch !== projectEpochRef.current) return;
       request = ++requestRef.current;
       await restoreWarehouseTransactionAtomic(projectId, row.id);
@@ -142,7 +148,7 @@ export const WarehouseDeletedVoucherRecovery: React.FC<{
     <div className="max-h-64 space-y-2 overflow-y-auto" data-hnl-deleted-voucher-list="true">
       {rows.map((row) => <div key={row.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white p-2 text-[10px]">
         <div className="min-w-0 flex-1">
-          <b>{row.type === 'in' ? 'Nhập' : 'Xuất'} · {row.materialName}</b> · {formatDecimal(row.quantity)} {row.unit}
+          <b>{row.type === 'in' ? 'Nhập' : 'Xuất'} · {names.forItem(row)}</b> · {formatDecimal(row.quantity)} {row.unit}
           <div className="text-[10px] leading-4 text-slate-500">{formatDateDDMMYYYY(row.date)} · Mã {row.id.slice(0, 8)} · còn {Math.max(0, Math.ceil((getWarehouseTrashExpiry(row) - Date.now()) / 86400000))} ngày</div>
         </div>
         <div className="flex flex-wrap gap-2">
