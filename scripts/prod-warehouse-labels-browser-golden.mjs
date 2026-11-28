@@ -43,7 +43,8 @@ try {
   await search.fill('');
   const downloadPromise=pc.waitForEvent('download');await pc.locator('[data-fixture-export]').click();const download=await downloadPromise;
   await download.saveAs(out+'/warehouse.xlsx');
-  const wb=XLSX.readFile(out+'/warehouse.xlsx');
+  const bytes=fs.readFileSync(out+'/warehouse.xlsx');assert(bytes.length>0,'actual downloaded XLSX is required');
+  const wb=XLSX.read(bytes,{type:'buffer'});
   for(const [sheet,ids] of [['Nhập Kho',['LABEL-MAT-IN','LABEL-EQ-IN']],['Xuất Kho',['LABEL-MAT-OUT','LABEL-EQ-OUT']]]){
     const rows=XLSX.utils.sheet_to_json(wb.Sheets[sheet]);assert.equal(rows.length,2);
     for(const id of ids){
