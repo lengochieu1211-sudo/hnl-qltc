@@ -3105,6 +3105,35 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     });
     return () => cancelAnimationFrame(frame);
   }, [isFullscreen, viewMode, selectedFloorId]);
+  // Re-read the fullscreen anchor after the open-state layout changes, before paint.
+  useLayoutEffect(() => {
+    if (!isFullscreen || !showFullscreenDisplaySettings) return;
+    const trigger = fullscreenDisplayTriggerRef.current;
+    const viewport = fullscreenDisplayViewportRef.current;
+    if (trigger && viewport) setFullscreenDisplayPosition(placeFloorPlanDisplayPopover(
+      trigger.getBoundingClientRect(), viewport.getBoundingClientRect(),
+    ));
+  }, [isFullscreen, showFullscreenDisplaySettings]);
+  // Dismiss normal-mode menus on outside taps or viewport changes, without touching drawings.
+  useEffect(() => {
+    const selector = '[data-hnl-map-measure-display-row] > details[open]';
+    const dismiss = (event?: PointerEvent) => {
+      document.querySelectorAll<HTMLDetailsElement>(selector).forEach(menu => {
+        if (event?.target instanceof Node && menu.contains(event.target)) return;
+        delete menu.dataset.hnlMapPopoverReady;
+        menu.open = false;
+      });
+    };
+    const resize = () => dismiss();
+    document.addEventListener('pointerdown', dismiss, true);
+    window.addEventListener('resize', resize);
+    window.addEventListener('orientationchange', resize);
+    return () => {
+      document.removeEventListener('pointerdown', dismiss, true);
+      window.removeEventListener('resize', resize);
+      window.removeEventListener('orientationchange', resize);
+    };
+  }, []);
   // A settings popover must not block drawing, floor switching or room action controls.
   useEffect(() => {
     if (!isFullscreen || !showFullscreenDisplaySettings) return;
@@ -6590,15 +6619,29 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
     const maxLeft = viewportWidth - margin - panelWidth - rect.left;
     const desiredLeft = rect.width - panelWidth; // Prefer right-aligned, but never clip the left edge.
     trigger.style.setProperty('--hnl-map-popover-left', `${Math.round(Math.min(maxLeft, Math.max(minLeft, desiredLeft)))}px`);
+    trigger.dataset.hnlMapPopoverReady = 'true';
+  };
+  // Native toggle is deferred. Open and measure in the same click, before paint.
+  const toggleMapToolbarPopover = (event: React.MouseEvent<HTMLElement>) => {
+    event.preventDefault();
+    const trigger = event.currentTarget.closest<HTMLDetailsElement>('details');
+    if (!trigger) return;
+    delete trigger.dataset.hnlMapPopoverReady;
+    if (trigger.open) { trigger.open = false; return; }
+    trigger.parentElement?.querySelectorAll<HTMLDetailsElement>('details[open]').forEach(other => {
+      if (other !== trigger) { delete other.dataset.hnlMapPopoverReady; other.open = false; }
+    });
+    trigger.open = true;
+    alignMapToolbarPopover(trigger);
   };
   const renderMapDisplaySettings = (dark = false) => (
     <details data-hnl-map-display-inline="anchored-popover" onToggle={event => {
       if (event.currentTarget.open) {
         document.querySelector<HTMLDetailsElement>('[data-hnl-map-calibration-inline="anchored-popover"]')?.removeAttribute('open');
         alignMapToolbarPopover(event.currentTarget);
-      }
+      } else delete event.currentTarget.dataset.hnlMapPopoverReady;
     }} className={`group/map-menu relative w-auto min-w-0 shrink-0 rounded-xl border transition-all open:bg-indigo-600 open:text-white open:font-black open:shadow-sm open:ring-2 open:ring-indigo-300 open:border-indigo-600 ${dark ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-200/90 bg-white text-slate-700 hover:bg-slate-100 shadow-2xs'}`}>
-      <summary className="text-xs font-bold group-open/map-menu:font-black px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer whitespace-nowrap list-none" aria-label="Mở tùy chỉnh hiển thị mặt bằng">
+      <summary onClick={toggleMapToolbarPopover} className="text-xs font-bold group-open/map-menu:font-black px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer whitespace-nowrap list-none" aria-label="Mở tùy chỉnh hiển thị mặt bằng">
         <span aria-hidden="true" className="text-sm leading-none shrink-0">⚙️</span><span>Hiển thị</span><ChevronDown className="hnl-disclosure-chevron h-3.5 w-3.5 group-open/map-menu:rotate-180" aria-hidden="true" />
       </summary>
       <div data-hnl-map-display-popover="true" className={`hnl-mobile-map-display-panel absolute left-0 right-auto top-full z-[95] mt-1 w-[min(18rem,calc(100vw-2rem))] max-h-[min(70dvh,36rem)] overflow-y-auto overscroll-contain rounded-xl border shadow-xl ${dark ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-200 bg-white text-slate-700'}`}>
@@ -7374,13 +7417,14 @@ export const FloorPlanDefectTab: React.FC<FloorPlanDefectTabProps> = ({
                     if (event.currentTarget.open) {
                       document.querySelector<HTMLDetailsElement>('[data-hnl-map-display-inline="anchored-popover"]')?.removeAttribute('open');
                       alignMapToolbarPopover(event.currentTarget);
-                    }
+                    } else delete event.currentTarget.dataset.hnlMapPopoverReady;
                   }}
                   className="group/map-menu relative w-auto min-w-0 shrink-0 rounded-xl border border-slate-200/90 bg-white text-slate-700 hover:bg-slate-100 shadow-2xs transition-all open:bg-indigo-600 open:text-white open:font-black open:border-indigo-600 open:shadow-sm open:ring-2 open:ring-indigo-300">
                   <summary data-hnl-cach2-calibrate-toolbar="true" role="button" title="Chọn 2 điểm chuẩn để đo tỷ lệ" aria-label="Mở đo tỷ lệ mặt bằng"
                     aria-disabled={!activeFloor || isCountDrawing || isShapeDrawing || isRoomCreationDrawing || drawTool !== 'none' || isDefectPinPlacementMode}
                     onClick={event => {
-                      if (!activeFloor || isCountDrawing || isShapeDrawing || isRoomCreationDrawing || drawTool !== 'none' || isDefectPinPlacementMode) event.preventDefault();
+                      if (!activeFloor || isCountDrawing || isShapeDrawing || isRoomCreationDrawing || drawTool !== 'none' || isDefectPinPlacementMode) { event.preventDefault(); return; }
+                      toggleMapToolbarPopover(event);
                     }}
                     className="text-xs font-bold group-open/map-menu:font-black px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer whitespace-nowrap list-none aria-disabled:opacity-40">
                     <span className="text-sm leading-none shrink-0">📏</span><span>Đo tỷ lệ</span><ChevronDown className="hnl-disclosure-chevron h-3.5 w-3.5 group-open/map-menu:rotate-180" aria-hidden="true" />
