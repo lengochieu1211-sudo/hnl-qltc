@@ -237,7 +237,14 @@ assert.ok(pcSubQuantityCss.startsWith('/* Fine-pointer PC child quantity columns
 assert.ok(pcSubQuantityCss.includes('@media (hover: hover) and (pointer: fine)'));
 assert.ok(pcSubQuantityCss.includes('grid-template-columns: var(--hnl-pc-sub-quantity-label-width) minmax(0, 1fr);'));
 assert.ok(pcSubQuantityCss.includes('grid-template-columns: minmax(0, 1fr);'));
-assert.ok(pcSubQuantityCss.includes('max-width: 24rem;'));
+assert.ok(pcSubQuantityCss.includes('--hnl-pc-sub-quantity-field-width: 160px;'));
+assert.ok(pcSubQuantityCss.includes('--hnl-pc-sub-quantity-field-height: 30px;'));
+assert.ok(pcSubQuantityCss.includes('max-width: calc(var(--hnl-pc-sub-quantity-label-width) + var(--hnl-pc-sub-quantity-column-gap) + var(--hnl-pc-sub-quantity-field-width));'));
+assert.match(pcSubQuantityCss,/\> span:first-child \{\s*display: flex;\s*align-items: center;\s*align-self: start;\s*min-height: var\(--hnl-pc-sub-quantity-field-height\);\s*padding-block: 0;/);
+assert.match(pcSubQuantityCss,/box-sizing: border-box;\s*height: var\(--hnl-pc-sub-quantity-field-height\);\s*min-height: var\(--hnl-pc-sub-quantity-field-height\);/);
+assert.ok(pcSubQuantityCss.includes('> label { align-items: center; }'));
+assert.ok(!pcSubQuantityCss.includes('max-width: 24rem;'));
+assert.ok(!pcSubQuantityCss.includes('padding-block-start: .25rem;'));
 assert.ok(pcSubQuantityCss.includes('grid-column: 2;\n    margin-left: 0;'));
 assert.ok(!pcSubQuantityCss.includes('hnl-quantity-touch-help'));
 assert.ok(pcSubQuantityCss.includes('grid-column: 1 / -1;'));
