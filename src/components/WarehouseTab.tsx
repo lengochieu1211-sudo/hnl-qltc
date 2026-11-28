@@ -36,6 +36,7 @@ import { formatDateDDMMYYYY, formatExcelDate, toLocalDateInputValue } from '../u
 import { formatDecimal, evaluateMathExpression, hasMathExpression, useFormatSettings, parseVietnameseNumber, parseExcelNumber } from '../utils/numberUtils';
 import { confirmAsync } from '../utils/confirmAsync';
 import { calculateStockSummary, resolveNormMaterialId } from '../utils/inventoryUtils';
+import { createWarehouseDisplayNames } from '../utils/warehouseDisplayName';
 import { compareDateValues, naturalCompare } from '../utils/sortUtils';
 import { matchesWarehouseVoucherDate, isWarehouseVoucherDateInRange } from '../utils/warehouseVoucherDateFilter';
 import { createEntityId } from '../utils/idUtils';
@@ -300,7 +301,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   }, [currentProjectId]);
   const inventorySaveInFlightRef = useRef(false);
   const [catalogHistory, setCatalogHistory] = useState<{
-    kind: InventoryItemKind; name: string; displayName: string; unit: string;
+    kind: InventoryItemKind; name: string; displayName: string; unit: string; materialId?: string;
     type: TransactionType; expectedTotal: number;
   } | null>(null);
   const [catalogHistoryStart, setCatalogHistoryStart] = useState('');
@@ -412,6 +413,16 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       console.warn('[Equipment catalog] Read denied/unavailable; editing disabled', error);
     });
   }, [currentProjectId, roleResolved]);
+  const displayNames = useMemo(() => createWarehouseDisplayNames(
+    materialNorms, roleResolved ? equipmentMaster.filter(row => row.projectId === currentProjectId) : [],
+  ), [materialNorms, equipmentMaster, currentProjectId, roleResolved]);
+  // Receipt export only; mutations and stock math keep the original inventory.
+  const presentationInventory = useMemo(() => voucherShareOpen ? inventory.map(displayNames.forPresentation) : inventory,
+    [voucherShareOpen, inventory, displayNames]);
+  const catalogHistoryName = catalogHistory ? displayNames.forItem({
+    itemKind: catalogHistory.kind, materialId: catalogHistory.materialId,
+    materialName: catalogHistory.name, unit: catalogHistory.unit,
+  }) : '';
   const normalizedStructureConfig = useMemo(() => normalizeStructureGroupConfig(structureConfig), [structureConfig]);
   const [materialNeedStructureGroupIds, setMaterialNeedStructureGroupIds] = useState<string[]>([]);
   const [materialNeedFloorIds, setMaterialNeedFloorIds] = useState<string[]>([]);
@@ -1404,6 +1415,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       const activeMasses = new Set(materialMasses.filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0));
       return {
         ...item,
+        materialId: expectedKind === 'material' ? summary?.materialId : undefined,
         kgPerUnit,
         kgConflict: activeMasses.size > 1,
         totalIn: Number(summary?.totalIn || 0),
@@ -1498,16 +1510,14 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   // Same identity/unit/type keys as the stock ledger; never merge legacy Cái/Bộ.
   const catalogHistoryRows = useMemo(() => {
     if (!catalogHistory) return [];
-    const key = normalizeMaterialSearch(catalogHistory.name);
-    const unitKey = normalizeMaterialSearch(normalizeUnit(catalogHistory.unit) || catalogHistory.unit);
+    const target = { itemKind: catalogHistory.kind, materialId: catalogHistory.materialId,
+      materialName: catalogHistory.name, unit: catalogHistory.unit };
     return inventory.filter((entry) =>
       entry.deletedAt == null
-      && (entry.itemKind === 'equipment' ? 'equipment' : 'material') === catalogHistory.kind
       && entry.type === catalogHistory.type
-      && normalizeMaterialSearch(entry.materialName) === key
-      && normalizeMaterialSearch(normalizeUnit(entry.unit) || entry.unit) === unitKey
+      && displayNames.sameIdentity(target, entry)
     ).sort((a, b) => compareDateValues(b.date, a.date) || a.id.localeCompare(b.id));
-  }, [catalogHistory, inventory]);
+  }, [catalogHistory, inventory, displayNames]);
   const catalogHistoryDates = useMemo(() => {
     const grouped = new Map<string, InventoryItem[]>();
     catalogHistoryRows.forEach((entry) => {
@@ -1729,6 +1739,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       const matchesSearch = !q ||
         (item.itemKind === 'equipment' ? 'thiết bị' : 'vật tư').includes(q) ||
         item.materialName.toLocaleLowerCase('vi-VN').includes(q) ||
+        displayNames.forItem(item).toLocaleLowerCase('vi-VN').includes(q) ||
         item.location.toLocaleLowerCase('vi-VN').includes(q) ||
         item.handler.toLocaleLowerCase('vi-VN').includes(q) ||
         item.id.toLocaleLowerCase('vi-VN').includes(q) ||
@@ -1741,7 +1752,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       let result = 0;
       switch (inventorySortBy) {
         case 'material':
-          result = naturalCompare(a.materialName, b.materialName);
+          result = naturalCompare(displayNames.forItem(a), displayNames.forItem(b));
           break;
         case 'location':
           result = naturalCompare(a.location, b.location);
@@ -1759,7 +1770,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       // Stable deterministic tie-breaker across PC/phone.
       return naturalCompare(a.id, b.id);
     });
-  }, [inventory, filterType, inventoryKindFilter, searchTerm, warehouseFromDate, warehouseToDate, inventorySortBy, inventorySortOrder]);
+  }, [inventory, filterType, inventoryKindFilter, searchTerm, warehouseFromDate, warehouseToDate, inventorySortBy, inventorySortOrder, displayNames]);
 
   // Deep-link from catalog history to the exact already-loaded voucher (no extra Firestore read).
   // The list remains read-only for VIEWER; its existing Edit action enforces RBAC + transfer rules.
@@ -2380,6 +2391,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       itemKind: item.itemKind === 'equipment' ? 'equipment' : 'material',
       date: item.date,
       materialName: item.materialName,
+      currentDisplayName: displayNames.forItem(item),
       unit: item.unit,
       quantity: item.inputExpressions?.quantity || item.quantity,
       category: materialNorms.find((norm) => resolveNormMaterialId(norm) === item.materialId || (norm.materialName === item.materialName && norm.unit === item.unit))?.category || '',
@@ -2393,7 +2405,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       notes: item.notes || '',
     };
   });
-  }, [showQuickEdit, inventory, floorPlans, roomProgressList, teams, workVolumes, materialNorms, normalizedStructureConfig]);
+  }, [showQuickEdit, inventory, floorPlans, roomProgressList, teams, workVolumes, materialNorms, normalizedStructureConfig, displayNames]);
 
   const warehouseQuickEquipmentRows = useMemo<QuickGridRow[]>(() => {
     if (!showQuickEdit) return [];
@@ -2426,7 +2438,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
   const warehouseQuickStockRows = useMemo<QuickGridRow[]>(() => showQuickEdit ? stockSummaries.map((item, index) => ({
     __rowKey: `stock-${item.materialId || item.materialName}-${index}`,
     itemKind: item.itemKind,
-    materialName: item.materialName,
+    materialName: displayNames.forItem(item),
     category: item.category,
     unit: item.unit,
     totalIn: item.totalIn,
@@ -2443,7 +2455,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     })(),
     normQuantity: item.itemKind === 'material' ? item.normQuantity : '',
     remainingNeed: item.itemKind === 'material' ? item.remainingNeed : '',
-  })) : [], [showQuickEdit, stockSummaries, warehouseOrderItems]);
+  })) : [], [showQuickEdit, stockSummaries, warehouseOrderItems, displayNames]);
 
   const warehouseMaterialOptions = useMemo(() => showQuickEdit ? Array.from(new Set([
     ...materialNorms.map((norm) => norm.materialName),
@@ -2559,7 +2571,8 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
     const base: QuickGridColumn[] = [
       { key: 'date', label: 'Ngày', editable: hasImportAccess, type: 'date', required: true, width: 135 },
       { key: 'itemKind', label: 'Loại hàng', editable: (row) => hasImportAccess && Boolean(row.__new), type: 'select', options: [{ value: 'material', label: 'Vật tư' }, { value: 'equipment', label: 'Thiết bị' }], required: true, width: 115 },
-      { key: 'materialName', label: 'Tên vật tư / thiết bị', editable: hasImportAccess, type: 'select', options: warehouseMaterialOptions, required: true, width: 220 },
+      { key: 'materialName', label: 'Tên gốc (liên kết kho)', editable: hasImportAccess, type: 'select', options: warehouseMaterialOptions, required: true, width: 220 },
+      { key: 'currentDisplayName', label: 'Tên hiện tại (chỉ xem)', editable: false, width: 220 },
       { key: 'unit', label: 'ĐVT (tự lấy)', editable: false, required: true, width: 120 },
       { key: 'quantity', label: 'Số lượng', editable: hasImportAccess, type: 'number', allowExpression: true, required: true, width: 110, validate: (value) => { const parsed = evaluateMathExpression(String(value ?? '')); return parsed !== null && parsed <= 0 ? 'Phải lớn hơn 0' : null; } },
     ];
@@ -3150,7 +3163,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
         icon={Layers}
         iconClassName="text-indigo-600"
         title={catalogHistory ? (catalogHistory.type === 'in' ? 'Chi tiết nhập kho' : 'Chi tiết xuất kho') : 'Danh mục kho'}
-        description={catalogHistory ? `${catalogHistory.displayName} · ${catalogHistory.unit}` : 'Tổng hợp vật tư và thiết bị theo nhập, xuất, tồn kho; vật tư còn có thông tin nhu cầu theo định mức.'}
+        description={catalogHistory ? `${catalogHistoryName} · ${catalogHistory.unit}` : 'Tổng hợp vật tư và thiết bị theo nhập, xuất, tồn kho; vật tư còn có thông tin nhu cầu theo định mức.'}
         bodyClassName="space-y-3"
       >
         <div className="space-y-3">
@@ -3160,7 +3173,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <h4 className="text-sm font-extrabold text-slate-800">{catalogHistory.type === 'in' ? 'Chi tiết nhập kho' : 'Chi tiết xuất kho'}</h4>
-                  <p className="text-xs text-slate-600 break-words">{catalogHistory.displayName} · {catalogHistory.unit} · {catalogHistory.kind === 'equipment' ? 'Thiết bị' : 'Vật tư'}</p>
+                  <p className="text-xs text-slate-600 break-words">{catalogHistoryName} · {catalogHistory.unit} · {catalogHistory.kind === 'equipment' ? 'Thiết bị' : 'Vật tư'}</p>
                 </div>
                 
               </div>
@@ -3318,14 +3331,14 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                     <td className="px-2 py-0 text-slate-600">{item.unit}</td>
                     <td className="px-2 py-0 text-right">
                       <button type="button" data-hnl-catalog-in-history={item.key}
-                        onClick={() => { rememberCatalogHistoryOrigin(item.key, 'in'); setCatalogHistory({ kind: warehouseCatalogTab, name: 'sourceName' in item ? item.sourceName : item.name, displayName: item.name, unit: item.unit, type: 'in', expectedTotal: item.totalIn }); setCatalogHistoryStart(''); setCatalogHistoryEnd(''); setExpandedHistoryDate(null); }}
+                        onClick={() => { rememberCatalogHistoryOrigin(item.key, 'in'); setCatalogHistory({ kind: warehouseCatalogTab, name: 'sourceName' in item ? item.sourceName : item.name, displayName: item.name, unit: item.unit, materialId: item.materialId, type: 'in', expectedTotal: item.totalIn }); setCatalogHistoryStart(''); setCatalogHistoryEnd(''); setExpandedHistoryDate(null); }}
                         className="h-8 min-h-8 min-w-10 w-full rounded px-1 text-right font-semibold text-emerald-700 underline decoration-dotted underline-offset-2 hover:bg-emerald-50 focus-visible:outline-2 focus-visible:outline-emerald-600"
                         aria-label={`Xem chi tiết nhập kho ${item.name}: ${formatDecimal(item.totalIn)} ${item.unit}`}>
                         {formatDecimal(item.totalIn)}</button>
                     </td>
                     <td className="px-2 py-0 text-right">
                       <button type="button" data-hnl-catalog-out-history={item.key}
-                        onClick={() => { rememberCatalogHistoryOrigin(item.key, 'out'); setCatalogHistory({ kind: warehouseCatalogTab, name: 'sourceName' in item ? item.sourceName : item.name, displayName: item.name, unit: item.unit, type: 'out', expectedTotal: item.totalOut }); setCatalogHistoryStart(''); setCatalogHistoryEnd(''); setExpandedHistoryDate(null); }}
+                        onClick={() => { rememberCatalogHistoryOrigin(item.key, 'out'); setCatalogHistory({ kind: warehouseCatalogTab, name: 'sourceName' in item ? item.sourceName : item.name, displayName: item.name, unit: item.unit, materialId: item.materialId, type: 'out', expectedTotal: item.totalOut }); setCatalogHistoryStart(''); setCatalogHistoryEnd(''); setExpandedHistoryDate(null); }}
                         className="h-8 min-h-8 min-w-10 w-full rounded px-1 text-right font-semibold text-amber-700 underline decoration-dotted underline-offset-2 hover:bg-amber-50 focus-visible:outline-2 focus-visible:outline-amber-600"
                         aria-label={`Xem chi tiết xuất kho ${item.name}: ${formatDecimal(item.totalOut)} ${item.unit}`}>
                         {formatDecimal(item.totalOut)}</button>
@@ -3836,7 +3849,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                         {item.itemKind === 'equipment' ? 'Thiết bị' : category}
                       </span>
                     )}
-                    <p className="font-bold text-slate-800 truncate">{item.materialName}</p>
+                    <p className="font-bold text-slate-800 truncate">{displayNames.forItem(item)}</p>
                     <p className="text-[10px] text-slate-500">
                       Nhập: <span className="text-emerald-600 font-bold">{formatDecimal(item.totalIn)}</span> | 
                       Xuất: <span className="text-amber-600 font-bold">{formatDecimal(item.totalOut)}</span> {item.unit}
@@ -4141,7 +4154,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                           )}
                         </div>
                         <h4 className="text-xs font-bold text-slate-900 mt-0.5 leading-snug break-words">
-                          {item.materialName}
+                          {displayNames.forItem(item)}
                         </h4>
                       </div>
                     </div>
@@ -4197,7 +4210,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                         onClick={() => openEditInventory(item)}
                         className="text-[11px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-semibold"
                         title={`Sửa phiếu ${item.type === 'in' ? 'nhập kho' : 'xuất kho'}`}
-                        aria-label={`${item.warehouseTransferId ? 'Điều chỉnh' : 'Sửa'} phiếu ${item.type === 'in' ? 'nhập kho' : 'xuất kho'}: ${item.materialName}`}
+                        aria-label={`${item.warehouseTransferId ? 'Điều chỉnh' : 'Sửa'} phiếu ${item.type === 'in' ? 'nhập kho' : 'xuất kho'}: ${displayNames.forItem(item)}`}
                       >
                         <Edit2 className="w-3 h-3" /> {item.warehouseTransferId ? 'Điều chỉnh' : 'Sửa'}
                       </button>
@@ -4208,7 +4221,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                         onClick={() => setDeletingInventoryTarget(item)}
                         className="text-[11px] text-rose-500 hover:text-rose-700 flex items-center gap-1 font-semibold"
                         title={`Xóa phiếu ${item.type === 'in' ? 'nhập kho' : 'xuất kho'}`}
-                        aria-label={`Xóa phiếu ${item.type === 'in' ? 'nhập kho' : 'xuất kho'}: ${item.materialName}`}
+                        aria-label={`Xóa phiếu ${item.type === 'in' ? 'nhập kho' : 'xuất kho'}: ${displayNames.forItem(item)}`}
                       >
                         <Trash2 className="w-3 h-3" /> Xóa
                       </button>
@@ -4225,7 +4238,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       {directVoucherId && !voucherShareOpen && !showAddForm && !transferEditItem
         && !(directVoucherCanEdit && handledDirectVoucherEditorKeyRef.current !== directVoucherEditorKey)
         && <WarehouseVoucherDetailSheet
-        voucher={directVoucher}
+        voucher={directVoucher ? displayNames.forPresentation(directVoucher) : directVoucher}
         projectId={currentProjectId}
         projectName={projectName}
         projectLocation={projectLocation}
@@ -4238,7 +4251,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
       {voucherShareOpen && <WarehouseVoucherShareSheet
         open={voucherShareOpen}
         initialVoucherId={singleVoucherExportId || undefined}
-        inventory={inventory}
+        inventory={presentationInventory}
         projectName={projectName}
         projectLocation={projectLocation}
         contractorName={contractorName}
@@ -4250,7 +4263,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             <div className="flex shrink-0 items-start justify-between gap-2 border-b border-slate-200 p-3 sm:p-4">
               <div className="min-w-0">
                 <h3 className="flex items-center gap-2 text-sm font-extrabold text-slate-900"><Images className="h-4 w-4 text-sky-600" /> Ảnh giao nhận · {photoVoucher.type === 'in' ? 'Nhập kho' : 'Xuất kho'}</h3>
-                <p className="mt-1 break-words text-xs text-slate-600">{photoVoucher.materialName} · Mã phiếu: <span className="break-all font-mono">{photoVoucher.id}</span></p>
+                <p className="mt-1 break-words text-xs text-slate-600">{displayNames.forItem(inventory.find(item => item.id === photoVoucher.id) || { materialName: photoVoucher.materialName, unit: '' })} · Mã phiếu: <span className="break-all font-mono">{photoVoucher.id}</span></p>
               </div>
               <button type="button" onClick={() => {
                 if (photoVoucher.retryFiles?.length && !window.confirm(`${photoVoucher.retryFiles.length} ảnh chưa lưu. Đóng lúc này sẽ bỏ danh sách thử lại trên màn hình. Vẫn đóng?`)) return;
@@ -4330,7 +4343,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
                   {transferProjectName(transferEditItem.type === 'out' ? currentProjectId : transferEditItem.transferFromProjectId)}
                   {' → '}{transferProjectName(transferEditItem.type === 'out' ? transferEditItem.transferToProjectId : currentProjectId)}
                 </div>
-                <p className="text-xs text-slate-700">{transferEditItem.materialName} ({transferEditItem.unit})</p>
+                <p className="text-xs text-slate-700">{displayNames.forItem(transferEditItem)} ({transferEditItem.unit})</p>
               </div>
               <p className="text-[11px] text-amber-800">Giữ nguyên vật tư, đơn vị, mã chứng từ. Việc đổi loại vật tư cần chứng từ hủy/điều chỉnh riêng để không sai tồn kho.</p>
               <div data-hnl-warehouse-transfer-amend-fields="true" className="grid grid-cols-1 gap-3 lg:grid-cols-6 lg:gap-4">
@@ -4384,7 +4397,7 @@ export const WarehouseTab: React.FC<WarehouseTabProps> = ({
             <div>
               <h3 className="text-base font-bold text-slate-900">Xác nhận xóa Phiếu Kho</h3>
               <p className="text-xs text-slate-500 mt-1">
-                Bạn có chắc chắn muốn xóa phiếu <strong className="text-slate-800">[{deletingInventoryTarget.id}] - {deletingInventoryTarget.materialName} ({formatDecimal(deletingInventoryTarget.quantity)} {deletingInventoryTarget.unit})</strong> không?
+                Bạn có chắc chắn muốn xóa phiếu <strong className="text-slate-800">[{deletingInventoryTarget.id}] - {displayNames.forItem(deletingInventoryTarget)} ({formatDecimal(deletingInventoryTarget.quantity)} {deletingInventoryTarget.unit})</strong> không?
               </p>
               <p className="text-[11px] text-indigo-600 mt-1 font-medium">💡 Thao tác này có thể Hoàn tác.</p>
             </div>

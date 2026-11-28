@@ -278,8 +278,10 @@ assert.match(warehouse, /if \(table\) table\.scrollTop = origin\.tableTop/, 'Ret
 assert.match(warehouse, /normalizeMaterialSearch\('sourceName' in item \? item\.sourceName : item\.name\)/, 'Equipment aliases must resolve original ledger identity');
 assert.match(warehouse, /entry\.deletedAt == null/, 'Catalog history excludes deleted transactions');
 assert.match(warehouse, /entry\.type === catalogHistory\.type/, 'Catalog history filters IN vs OUT');
-assert.match(warehouse, /entry\.itemKind === 'equipment'/, 'Catalog history never merges materials with equipment');
-assert.match(warehouse, /normalizeUnit\(entry\.unit\)/, 'Catalog history keeps separate ledger units');
+assert.match(warehouse, /displayNames\.sameIdentity\(target, entry\)/, 'Catalog history must use the shared stable identity guard');
+const warehouseDisplayNames = fs.readFileSync('src/utils/warehouseDisplayName.ts', 'utf8');
+assert.match(warehouseDisplayNames, /aEquipment !== bEquipment \|\| unitKey\(a\.unit\) !== unitKey\(b\.unit\)\) return false/, 'Catalog history keeps item kinds and ledger units separate');
+assert.match(warehouseDisplayNames, /aId && bId && aId === bId/, 'Catalog history uses stable material IDs, not display labels');
 assert.match(warehouse, /isWarehouseVoucherDateInRange\(entry\.date, catalogHistoryStart, catalogHistoryEnd\)/, 'Catalog history uses the shared legacy-safe date range filter');
 assert.match(warehouse, /Math\.abs\(catalogHistoryTotal - catalogHistory\.expectedTotal\)/, 'Catalog warns on summary mismatch');
 assert.match(warehouse, /matchesType && matchesKind && matchesSearch/, 'Warehouse kind filtering must combine with receipt/issue and search filters');

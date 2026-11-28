@@ -5,6 +5,7 @@ import { isTeamMatch, calculateTeamStatistics, type TeamSubItemDetail } from './
 import { computeTeamMaterialReconciliation } from './teamMaterialReconciliation';
 import { computeTeamEquipmentIssues, computeUnassignedTeamEquipmentIssues } from './teamEquipmentIssues';
 import { calculateStockSummary, resolveNormMaterialId } from './inventoryUtils';
+import { createWarehouseDisplayNames } from './warehouseDisplayName';
 import { formatDateDDMMYYYY, formatDateTime, toLocalDateInputValue } from './dateFormatter';
 import { saveWorkbookFile } from './fileExport';
 import { getCrewShiftCounts } from './crewUtils';
@@ -1085,7 +1086,9 @@ function appendTeamEquipmentExcelSheets(
   teams: TeamInfo[],
   inventory: InventoryItem[],
   includeUnassigned: boolean,
+  equipmentMaster: EquipmentCatalogRecord[] = [],
 ): void {
+  const names = createWarehouseDisplayNames([], equipmentMaster);
   const buckets = teams.map((team) => ({
     id: team.id, teamName: team.name, assigned: true,
     lines: computeTeamEquipmentIssues(team.id, inventory),
@@ -1103,7 +1106,7 @@ function appendTeamEquipmentExcelSheets(
     summaries.push({
       'STT': summaries.length + 1, '__teamId': bucket.id,
       'Đội Thi Công': bucket.teamName,
-      'Tên Thiết Bị': line.equipmentName,
+      'Tên Thiết Bị': names.forItem({ itemKind: 'equipment', materialName: line.equipmentName, unit: line.unit }),
       'ĐVT': line.unit,
       'Tổng Đã Cấp (Không Phải Đang Giữ)': line.issuedQty,
       'Số Phiếu Xuất': line.voucherCount,
@@ -1113,7 +1116,7 @@ function appendTeamEquipmentExcelSheets(
       vouchers.push({
         'STT': vouchers.length + 1, '__teamId': bucket.id,
         'Đội Thi Công': bucket.teamName,
-        'Tên Thiết Bị': line.equipmentName,
+        'Tên Thiết Bị': names.forItem({ itemKind: 'equipment', materialName: line.equipmentName, unit: line.unit }),
         'ĐVT': line.unit,
         'Số Lượng Đã Xuất': voucher.quantity,
         'Ngày Xuất': voucher.date ? formatDateDDMMYYYY(voucher.date) : '',
@@ -1172,6 +1175,7 @@ export function exportTeamStatisticsToExcel(params: {
   inventory?: InventoryItem[];
   /** Full-project inventory (equipment is never filtered by floor/room/Khu). */
   equipmentInventory?: InventoryItem[];
+  equipmentMaster?: EquipmentCatalogRecord[];
   materialNorms?: MaterialNorm[];
 }) {
   const wb = XLSX.utils.book_new();
@@ -1377,7 +1381,7 @@ export function exportTeamStatisticsToExcel(params: {
     const ws6 = XLSX.utils.json_to_sheet(materialRows);
     autoFitColumns(ws6);
     XLSX.utils.book_append_sheet(wb, ws6, '06-Vật tư đối chiếu');
-    appendTeamEquipmentExcelSheets(wb, [team], params.equipmentInventory || params.inventory || [], false);
+    appendTeamEquipmentExcelSheets(wb, [team], params.equipmentInventory || params.inventory || [], false, params.equipmentMaster);
     appendTeamSubItemExcelSheet(wb, stat.teamSubItemDetails || []);
 
     const safeProj = projectNameStr.replace(/[^a-zA-Z0-9_ -]/g, '');
@@ -1617,7 +1621,7 @@ export function exportTeamStatisticsToExcel(params: {
   const wsMaterials = XLSX.utils.json_to_sheet(materialRows);
   autoFitColumns(wsMaterials);
   XLSX.utils.book_append_sheet(wb, wsMaterials, '06-Vật tư đối chiếu');
-  appendTeamEquipmentExcelSheets(wb, activeTeams, params.equipmentInventory || params.inventory || [], true);
+  appendTeamEquipmentExcelSheets(wb, activeTeams, params.equipmentInventory || params.inventory || [], true, params.equipmentMaster);
   appendTeamSubItemExcelSheet(wb, activeTeams.flatMap(team => teamStatsMap[team.id]?.teamSubItemDetails || []));
 
   const safeName = projectNameStr.replace(/[^a-zA-Z0-9_ -]/g, '');
@@ -1639,6 +1643,7 @@ export function exportWarehouseUpdateTemplate(
 ) {
   const wb = XLSX.utils.book_new();
   const exportStructure = normalizeStructureGroupConfig(context?.structureConfig);
+  const names = createWarehouseDisplayNames(materialNorms, context?.equipmentMaster || []);
 
   // 1. Sheet "Nhập Kho"
   const inItems = (inventory || []).filter((item) => item.type === 'in');
@@ -1664,13 +1669,14 @@ export function exportWarehouseUpdateTemplate(
     'Người Thực Hiện': item.handler || '-',
     'Ngày Thực Hiện': item.date ? formatDateDDMMYYYY(item.date) : '',
     'Ghi Chú': item.notes || '',
+    'Tên hiện tại (chỉ xem)': names.forItem(item),
   }));
   const inHeaders = [
     'STT', 'Mã Phiếu', '__itemKind', '__materialId', '__sourceType', '__issuePurpose',
     '__sourceStructureGroupId', '__sourceRoomId', '__sourceFloorId', '__sourceTeamId',
     '__sourceWorkCategoryId', '__sourceNormId', '__sourceIssueKey',
     'Loại Hàng', 'Tên Vật Tư / Thiết Bị', 'Đơn Vị Tính', 'Số Lượng',
-    'Vị Trí Kho', 'Người Thực Hiện', 'Ngày Thực Hiện', 'Ghi Chú',
+    'Vị Trí Kho', 'Người Thực Hiện', 'Ngày Thực Hiện', 'Ghi Chú', 'Tên hiện tại (chỉ xem)',
   ];
   const wsIn = inSource.length > 0
     ? XLSX.utils.json_to_sheet(inSource, { header: inHeaders })
@@ -1680,7 +1686,7 @@ export function exportWarehouseUpdateTemplate(
   wsIn['!cols'] = (wsIn['!cols'] || []).map((col, index) =>
     index >= 2 && index <= 12 ? { ...col, hidden: true } : col
   );
-  wsIn['!autofilter'] = { ref: `A1:U${Math.max(2, inSource.length + 1)}` };
+  wsIn['!autofilter'] = { ref: `A1:V${Math.max(2, inSource.length + 1)}` };
   XLSX.utils.book_append_sheet(wb, wsIn, 'Nhập Kho');
 
   // 2. Sheet "Xuất Kho"
@@ -1723,6 +1729,7 @@ export function exportWarehouseUpdateTemplate(
       'Người Thực Hiện': item.handler || '-',
       'Ngày Thực Hiện': item.date ? formatDateDDMMYYYY(item.date) : '',
       'Ghi Chú': item.notes || '',
+      'Tên hiện tại (chỉ xem)': names.forItem(item),
     };
   });
   const outHeaders = [
@@ -1732,7 +1739,7 @@ export function exportWarehouseUpdateTemplate(
     'Mục đích xuất', exportStructure.label || 'Khu / Khối', 'Tầng', 'Căn / Phòng',
     'Đội thi công', 'Hạng mục thi công', 'Loại Hàng', 'Tên Vật Tư / Thiết Bị',
     'Đơn Vị Tính', 'Số Lượng', 'Vị Trí Kho / Hạng Mục', 'Người Thực Hiện',
-    'Ngày Thực Hiện', 'Ghi Chú',
+    'Ngày Thực Hiện', 'Ghi Chú', 'Tên hiện tại (chỉ xem)',
   ];
   const wsOut = outSource.length > 0
     ? XLSX.utils.json_to_sheet(outSource, { header: outHeaders })
@@ -1742,7 +1749,7 @@ export function exportWarehouseUpdateTemplate(
   wsOut['!cols'] = (wsOut['!cols'] || []).map((col, index) =>
     index >= 2 && index <= 12 ? { ...col, hidden: true } : col
   );
-  wsOut['!autofilter'] = { ref: `A1:AA${Math.max(2, outSource.length + 1)}` };
+  wsOut['!autofilter'] = { ref: `A1:AB${Math.max(2, outSource.length + 1)}` };
   XLSX.utils.book_append_sheet(wb, wsOut, 'Xuất Kho');
 
   // 3. Sheet "Định Mức Vật Tư"
@@ -1861,7 +1868,7 @@ export function exportWarehouseUpdateTemplate(
     '__materialId': s.materialId || '',
     'Loại Hàng': s.itemKind === 'equipment' ? 'Thiết bị' : 'Vật tư',
     'Chủng Loại': s.category,
-    'Tên Vật Tư / Thiết Bị': s.materialName,
+    'Tên Vật Tư / Thiết Bị': names.forItem(s),
     'Đơn Vị Tính': s.unit,
     'KL/đơn vị (kg)': massFor(s) ?? '',
     'KL tồn (kg)': massFor(s) != null ? s.currentStock * massFor(s)! : '',

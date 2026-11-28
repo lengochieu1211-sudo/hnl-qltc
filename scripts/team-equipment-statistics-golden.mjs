@@ -62,8 +62,8 @@ for(const marker of [
 for(const marker of [
   'computeTeamEquipmentIssues(team.id, inventory)',
   'computeUnassignedTeamEquipmentIssues(inventory, teams.map((team) => team.id))',
-  'appendTeamEquipmentExcelSheets(wb, [team], params.equipmentInventory || params.inventory || [], false);',
-  'appendTeamEquipmentExcelSheets(wb, activeTeams, params.equipmentInventory || params.inventory || [], true);',
+  'appendTeamEquipmentExcelSheets(wb, [team], params.equipmentInventory || params.inventory || [], false, params.equipmentMaster);',
+  'appendTeamEquipmentExcelSheets(wb, activeTeams, params.equipmentInventory || params.inventory || [], true, params.equipmentMaster);',
   "'07-Thiết bị đã cấp'", "'08-Lịch sử cấp thiết bị'",
   "'Mã Phiếu': voucher.id", "'Người Giao / Nhận': voucher.handler",
 ]) assert.ok(excel.includes(marker),`Team statistics Excel marker lost: ${marker}`);
