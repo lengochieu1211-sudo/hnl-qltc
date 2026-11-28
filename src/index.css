@@ -597,6 +597,11 @@ html[data-hnl-theme="dark"] .hnl-crew-report-table tfoot td {
   z-index: 95;
 }
 
+/* Keep native details content unpainted until its actual open geometry is measured. */
+[data-hnl-map-measure-display-row="true"] > details:not([data-hnl-map-popover-ready="true"]) :is([data-hnl-map-display-popover="true"], [data-hnl-map-calibration-popover="true"]) {
+  visibility: hidden;
+}
+
 /* DEV: Tailwind `open:bg-indigo-600` is a DIFFERENT selector from `.bg-indigo-600`.
  * The three drawing buttons inherit the HNL primary-blue compatibility mapping,
  * but expanded <details> triggers previously kept the original Tailwind purple.

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useLayoutEffect, useState } from 'react';
 import { placeFloorPlanDisplayPopover } from '../utils/floorPlanDisplayPopover';
 
 /** UI-only popover coordinates inside the floor viewport; never changes plan geometry. */
@@ -8,7 +8,7 @@ export function useFloorPlanToolPopover(
   triggerSelector: string, preferredWidth: number, heightFraction: number,
 ): Position | undefined {
   const [position, setPosition] = useState<Position>();
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!active || !isFullscreen) { setPosition(undefined); return; }
     const viewport = imageContainer?.closest<HTMLElement>('[data-hnl-pc-plan-viewport]');
     const trigger = viewport?.querySelector<HTMLElement>(triggerSelector);

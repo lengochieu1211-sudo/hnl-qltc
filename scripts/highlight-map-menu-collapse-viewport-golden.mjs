@@ -100,3 +100,16 @@ assert.match(calibrationPanel, /disabled=\{!draft \|\| !preview\} onClick=\{save
 assert.match(calibrationPanel, /onClick=\{\(\)=>setPoints\(\[\]\)\}[^>]*>Chọn lại<\/button>/);
 assert.match(calibrationPanel, /event\.key === 'Escape'\) close\(\)/);
 console.log('PASS: single X cancel, authorized inactive retry, reselect/save and Escape retained');
+
+// Both normal menus must measure synchronously; no default-position first paint.
+assert.match(floor, /const toggleMapToolbarPopover = \(event: React\.MouseEvent<HTMLElement>\) =>/);
+assert.match(floor, /trigger\.open = true;\s*alignMapToolbarPopover\(trigger\);/);
+assert.match(floor, /trigger\.dataset\.hnlMapPopoverReady = 'true'/);
+assert.match(floor, /<summary onClick=\{toggleMapToolbarPopover\}/);
+assert.match(toolbar, /toggleMapToolbarPopover\(event\);/);
+assert.match(css, /details:not\(\[data-hnl-map-popover-ready="true"\]\)[^\n]+\{\s*visibility: hidden;/);
+const hook = read('src/hooks/useFloorPlanToolPopover.ts');
+assert.match(hook, /useLayoutEffect\(\(\) =>/);
+assert.doesNotMatch(hook, /useEffect\(/);
+assert.match(floor, /useLayoutEffect\(\(\) => \{\s*if \(!isFullscreen \|\| !showFullscreenDisplaySettings\) return;/);
+console.log('PASS: synchronous anchored-menu position, ready visibility guard and fullscreen pre-paint layout');
