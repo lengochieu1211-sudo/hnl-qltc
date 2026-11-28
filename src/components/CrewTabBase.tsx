@@ -57,6 +57,8 @@ import { ShareEntityMenu } from './ShareEntityMenu';
 import { CrewReportShareModal } from './CrewReportShareModal';
 import { computeTeamMaterialReconciliation } from '../utils/teamMaterialReconciliation';
 import { computeTeamEquipmentIssues } from '../utils/teamEquipmentIssues';
+import { useProjectEquipmentLabels } from '../hooks/useProjectEquipmentLabels';
+import { createWarehouseDisplayNames } from '../utils/warehouseDisplayName';
 import {
   getStructureGroupName,
   normalizeStructureGroupConfig,
@@ -1284,11 +1286,15 @@ export const CrewTab: React.FC<CrewTabProps> = ({
     });
   }, [selectedTeamForDetail, allTeamStatsMap, structureScopedInventory, materialNorms, workVolumes]);
 
+  const teamEquipmentMaster = useProjectEquipmentLabels(projectId, isActive && roleResolved);
+  const teamDisplayNames = useMemo(() => createWarehouseDisplayNames([], teamEquipmentMaster), [teamEquipmentMaster]);
   const selectedTeamEquipmentIssues = useMemo(() => {
     if (!selectedTeamForDetail) return [];
     // Equipment is project-wide; never use the selected Khu/Khối as an equipment filter.
-    return computeTeamEquipmentIssues(selectedTeamForDetail.id, inventory);
-  }, [selectedTeamForDetail, inventory]);
+    return computeTeamEquipmentIssues(selectedTeamForDetail.id, inventory).map(line => ({
+      ...line, equipmentName: teamDisplayNames.forItem({ itemKind: 'equipment', materialName: line.equipmentName, unit: line.unit }),
+    }));
+  }, [selectedTeamForDetail, inventory, teamDisplayNames]);
 
   // Handle Daily Log Submission
   const handleLogSubmit = async (e: React.FormEvent) => {
@@ -1618,6 +1624,7 @@ export const CrewTab: React.FC<CrewTabProps> = ({
       workVolumes,
       inventory: structureScopedInventory,
       equipmentInventory: inventory,
+      equipmentMaster: teamEquipmentMaster,
       materialNorms,
     });
   };

@@ -4,6 +4,7 @@ import { canonicalNormCategoryIds, validateMaterialNormCatalog } from './linkage
 import { buildMaterialAliasMap, getMaterialIdentityKey, resolveNormMaterialId } from './inventoryUtils';
 import { areSameUnit, normalizeUnit } from './unitUtils';
 import { naturalCompare } from './sortUtils';
+import { createWarehouseDisplayNames } from './warehouseDisplayName';
 
 export interface TeamMaterialReconciliationLine {
   materialKey: string;
@@ -148,6 +149,7 @@ export function computeTeamMaterialReconciliation(params: {
     lines.set(key, existing);
   });
 
+  const names = createWarehouseDisplayNames(materialNorms);
   return Array.from(lines.values())
     .map((line) => {
       const expectedAssignedQty = round2(line.expectedAssignedQty);
@@ -157,6 +159,7 @@ export function computeTeamMaterialReconciliation(params: {
       const integrityWarning = Array.from(warningByMaterial.get(line.materialKey) || []).join('; ');
       return {
         ...line,
+        materialName: names.forItem(line),
         expectedAssignedQty,
         expectedConstructedQty,
         issuedQty,
