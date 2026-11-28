@@ -14,5 +14,5 @@ export function useProjectEquipmentLabels(projectId: string | undefined, enabled
     }, () => { if (active) setSnapshot(null); });
     return () => { active = false; unsubscribe(); };
   }, [projectId, enabled]);
-  return enabled && snapshot?.projectId === projectId ? snapshot.rows : EMPTY;
+  return enabled && projectId && snapshot && snapshot.projectId === projectId ? snapshot.rows : EMPTY;
 }
