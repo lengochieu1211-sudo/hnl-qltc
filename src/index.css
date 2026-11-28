@@ -885,3 +885,49 @@ details[open] > summary.hnl-native-disclosure::after { transform: rotate(180deg)
     max-width: 100%;
   }
 }
+
+/* Fine-pointer PC child quantity columns: share label and field tracks, while
+   retaining the native formula tooltip and the existing PR519 touch layout. */
+@media (hover: hover) and (pointer: fine) {
+  [data-hnl-sub-quantity-group="true"] {
+    --hnl-pc-sub-quantity-label-width: 4.25rem;
+    --hnl-pc-sub-quantity-column-gap: .375rem;
+  }
+  [data-hnl-sub-quantity-group="true"] [data-hnl-subitem-editable-quantity],
+  [data-hnl-sub-quantity-group="true"] [data-hnl-sub-unit-spacing="true"] > label {
+    display: grid;
+    grid-template-columns: var(--hnl-pc-sub-quantity-label-width) minmax(0, 1fr);
+    gap: var(--hnl-pc-sub-quantity-column-gap);
+    align-items: start;
+    width: 100%;
+    max-width: 24rem;
+    min-width: 0;
+  }
+  [data-hnl-subitem-editable-quantity] > span:first-child { padding-block-start: .25rem; }
+  [data-hnl-subitem-editable-quantity] > [data-hnl-quantity-calculator] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+    min-width: 0;
+  }
+  [data-hnl-subitem-editable-quantity] > [data-hnl-quantity-calculator] > input,
+  [data-hnl-sub-unit-spacing="true"] > label > select[data-hnl-sub-count-unit="true"] {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+  [data-hnl-sub-unit-spacing="true"] > label { align-items: center; }
+  [data-hnl-sub-unit-spacing="true"] > label > select[data-hnl-sub-count-unit="true"] {
+    grid-column: 2;
+    margin-left: 0;
+  }
+  [data-hnl-subitem-editable-quantity] > [data-hnl-quantity-calculator] > [role="alert"] {
+    grid-column: 1 / -1;
+    overflow-wrap: anywhere;
+  }
+  [data-hnl-sub-unit-spacing="true"] > [data-hnl-sub-unit-custom-editor] {
+    flex-wrap: wrap;
+    min-width: 0;
+    max-width: 100%;
+  }
+}
