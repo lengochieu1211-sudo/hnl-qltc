@@ -30,7 +30,7 @@ jobs:
           OUT=runtime-evidence/prod-warehouse-source
           mkdir -p "$OUT"
           git diff --name-only "$BASE" HEAD | LC_ALL=C sort > "$OUT/changed-files.txt"
-          printf '%s\n' 'scripts/quick-edit-excel-golden.ts' 'scripts/team-equipment-statistics-golden.mjs' 'scripts/warehouse-ledger-reconcile-golden.ts' 'src/components/CrewTabBase.tsx' 'src/components/GoogleConfigTab.tsx' 'src/components/WarehouseDeletedVoucherRecovery.tsx' 'src/components/WarehouseTab.tsx' 'src/hooks/useProjectEquipmentLabels.ts' 'src/utils/excelExport.ts' 'src/utils/teamMaterialReconciliation.ts' 'src/utils/warehouseDisplayName.ts' 'scripts/fixtures/prod-warehouse-labels/index.html' 'scripts/fixtures/prod-warehouse-labels/main.tsx' 'scripts/prod-warehouse-labels-browser-golden.mjs' '.github/workflows/prod-warehouse-label-hotfix-qa.yml' | LC_ALL=C sort > "$OUT/expected-files.txt"
+          printf '%s\n' 'scripts/quick-edit-excel-golden.ts' 'scripts/team-equipment-statistics-golden.mjs' 'scripts/warehouse-ledger-reconcile-golden.ts' 'src/components/CrewTabBase.tsx' 'src/components/GoogleConfigTab.tsx' 'src/components/WarehouseDeletedVoucherRecovery.tsx' 'src/components/WarehouseTab.tsx' 'src/hooks/useProjectEquipmentLabels.ts' 'src/utils/excelExport.ts' 'src/utils/teamMaterialReconciliation.ts' 'src/utils/warehouseDisplayName.ts' 'scripts/fixtures/prod-warehouse-labels/index.html' 'scripts/fixtures/prod-warehouse-labels/main.tsx' 'scripts/prod-warehouse-labels-browser-golden.mjs' '.github/workflows/prod-warehouse-label-hotfix-qa.yml' '.github/workflows/prod-crew-auto-team-qa.yml' | LC_ALL=C sort > "$OUT/expected-files.txt"
           cmp "$OUT/changed-files.txt" "$OUT/expected-files.txt"
           git diff --exit-code "$BASE" HEAD -- package.json package-lock.json .firebaserc firebase.json firebase.prod.json firestore.rules storage.rules cloudflare/ .github/workflows/hnl-prod-hosting-auto.yml
           git archive --format=zip -o "$OUT/PROD-BEFORE-FULL-SOURCE.zip" "$BASE"
@@ -70,6 +70,8 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Authenticated local emulator, two users, offline reconnect, stock and XLSX readback
         run: npx --yes firebase-tools@13.35.1 emulators:exec --config firebase.rules-ci.json --only auth,firestore --project demo-hnl-qltc-rules "node scripts/prod-warehouse-labels-browser-golden.mjs"
+      - name: Existing PR514 auto-team browser regression (same actual test, current MAIN)
+        run: npx --yes firebase-tools@13.35.1 emulators:exec --config firebase.rules-ci.json --only auth,firestore --project demo-hnl-qltc-rules "node scripts/crew-auto-team-browser-golden.mjs"
       - name: Existing catalog and voucher cross-feature browser regressions
         run: |
           node scripts/warehouse-catalog-browser-golden.mjs
@@ -80,6 +82,7 @@ jobs:
           name: HNL-PROD-WAREHOUSE-LABEL-BROWSER
           path: |
             runtime-evidence/prod-warehouse-labels/
+            runtime-evidence/crew-auto-team/
             runtime-evidence/catalog-click-*
             runtime-evidence/voucher-*
           retention-days: 30

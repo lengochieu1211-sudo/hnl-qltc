@@ -12,6 +12,8 @@ permissions:
   contents: read
 jobs:
   scoped-qa:
+    # One-shot PR514 scope proof; unrelated PRs use their own current-HEAD QA.
+    if: github.head_ref == 'hotfix/prod-pr513-crew-auto-team-20261126'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
