@@ -1,0 +1,89 @@
+name: HNL PROD Warehouse Label Hotfix QA (NO DEPLOY)
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/prod-warehouse-label-hotfix-qa.yml'
+      - 'scripts/prod-warehouse-labels-browser-golden.mjs'
+      - 'scripts/fixtures/prod-warehouse-labels/**'
+      - 'src/utils/warehouseDisplayName.ts'
+permissions:
+  contents: read
+jobs:
+  isolated-warehouse-labels:
+    if: github.head_ref == 'hotfix/prod-warehouse-display-name-20261128'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact source delta and archive PROD before merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=7db170cd989878c2cdd117d6704e2f0428b4d721
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$BASE"
+          git merge-base --is-ancestor "$BASE" HEAD
+          OUT=runtime-evidence/prod-warehouse-source
+          mkdir -p "$OUT"
+          git diff --name-only "$BASE" HEAD | LC_ALL=C sort > "$OUT/changed-files.txt"
+          printf '%s\n' 'scripts/quick-edit-excel-golden.ts' 'scripts/team-equipment-statistics-golden.mjs' 'scripts/warehouse-ledger-reconcile-golden.ts' 'src/components/CrewTabBase.tsx' 'src/components/GoogleConfigTab.tsx' 'src/components/WarehouseDeletedVoucherRecovery.tsx' 'src/components/WarehouseTab.tsx' 'src/hooks/useProjectEquipmentLabels.ts' 'src/utils/excelExport.ts' 'src/utils/teamMaterialReconciliation.ts' 'src/utils/warehouseDisplayName.ts' 'scripts/fixtures/prod-warehouse-labels/index.html' 'scripts/fixtures/prod-warehouse-labels/main.tsx' 'scripts/prod-warehouse-labels-browser-golden.mjs' '.github/workflows/prod-warehouse-label-hotfix-qa.yml' '.github/workflows/prod-crew-auto-team-qa.yml' | LC_ALL=C sort > "$OUT/expected-files.txt"
+          cmp "$OUT/changed-files.txt" "$OUT/expected-files.txt"
+          git diff --exit-code "$BASE" HEAD -- package.json package-lock.json .firebaserc firebase.json firebase.prod.json firestore.rules storage.rules cloudflare/ .github/workflows/hnl-prod-hosting-auto.yml
+          git archive --format=zip -o "$OUT/PROD-BEFORE-FULL-SOURCE.zip" "$BASE"
+          git archive --format=zip -o "$OUT/PROD-CANDIDATE-FULL-SOURCE.zip" HEAD
+          mapfile -t FILES < "$OUT/changed-files.txt"
+          git archive --format=zip -o "$OUT/PROD-CANDIDATE-PATCH.zip" HEAD -- "${FILES[@]}"
+          for f in "$OUT"/*.zip; do unzip -tq "$f"; done
+          curl -fsSL --retry 3 "https://hnlqltc.web.app/sw-assets.json?qa=$GITHUB_RUN_ID" -o "$OUT/previous-live-manifest.json"
+          node -e "const m=require('./runtime-evidence/prod-warehouse-source/previous-live-manifest.json');if(m.version!=='6.3.0'||!String(m.buildId).startsWith('45797763100-'))throw Error('PROD live baseline differs');if(!Array.isArray(m.assets)||!m.assets.length)throw Error('Missing assets');"
+          curl -fsSL --retry 3 "https://hnlqltc.web.app/?qa=$GITHUB_RUN_ID" -o "$OUT/previous-live.html"
+          ASSET=$(node -e "const s=require('fs').readFileSync(process.argv[1],'utf8');process.stdout.write(s.match(/src=\"(\\/assets\\/[^\" ]+\\.js)\"/)?.[1]||'')" "$OUT/previous-live.html")
+          test -n "$ASSET"
+          curl -fsSL --retry 3 "https://hnlqltc.web.app$ASSET" -o "$RUNNER_TEMP/previous-live.js"
+          grep -Fq "$BASE" "$RUNNER_TEMP/previous-live.js"
+          sha256sum "$RUNNER_TEMP/previous-live.js" | cut -d' ' -f1 > "$OUT/previous-live-js.sha256"
+          printf '%s\n' "BASE=$BASE" "CANDIDATE=$(git rev-parse HEAD)" 'Warehouse current-name presentation hotfix, NO DEPLOY; all cloud writes confined to demo emulator in test' > "$OUT/REPORT.txt"
+          (cd "$OUT"; sha256sum *.zip *.json *.html *.txt *.sha256 > SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HNL-PROD-WAREHOUSE-LABEL-BEFORE-CANDIDATE
+          path: runtime-evidence/prod-warehouse-source/
+          retention-days: 30
+          if-no-files-found: error
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: |
+          npx --no-install tsx scripts/warehouse-ledger-reconcile-golden.ts
+          npx --no-install tsx scripts/quick-edit-excel-golden.ts
+          node --experimental-strip-types scripts/team-equipment-statistics-golden.mjs
+          npx --no-install tsx scripts/warehouse-export-formulas-golden.ts
+          node scripts/prod-warehouse-defect-day-golden.mjs
+      - run: |
+          npm install --no-save --package-lock=false playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Authenticated local emulator, two users, offline reconnect, stock and XLSX readback
+        run: npx --yes firebase-tools@13.35.1 emulators:exec --config firebase.rules-ci.json --only auth,firestore --project demo-hnl-qltc-rules "node scripts/prod-warehouse-labels-browser-golden.mjs"
+      - name: Existing PR514 auto-team browser regression (same actual test, current MAIN)
+        run: npx --yes firebase-tools@13.35.1 emulators:exec --config firebase.rules-ci.json --only auth,firestore --project demo-hnl-qltc-rules "node scripts/crew-auto-team-browser-golden.mjs"
+      - name: Existing catalog and voucher cross-feature browser regressions
+        run: |
+          node scripts/warehouse-catalog-browser-golden.mjs
+          node scripts/warehouse-voucher-browser-golden.mjs
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HNL-PROD-WAREHOUSE-LABEL-BROWSER
+          path: |
+            runtime-evidence/prod-warehouse-labels/
+            runtime-evidence/crew-auto-team/
+            runtime-evidence/catalog-click-*
+            runtime-evidence/voucher-*
+          retention-days: 30
+          if-no-files-found: warn

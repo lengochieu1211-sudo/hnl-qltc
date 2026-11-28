@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { calculateStockSummary } from '../src/utils/inventoryUtils';
+import { createWarehouseDisplayNames } from '../src/utils/warehouseDisplayName';
+import type { MaterialNorm, InventoryItem } from '../src/types';
 import {
   calculateWarehouseLedgerOnHand,
   getWarehouseMaterialKey,
@@ -62,3 +64,45 @@ for (const kind of ['material', 'equipment'] as const) {
 }
 
 console.log('warehouse-ledger-reconcile-golden: PASS');
+
+const renamedNorm: MaterialNorm = { id: 'NORM-1', materialId: 'MAT-BOARD', materialName: 'Tấm mới', unit: 'Tấm', category: 'Vật tư', quotaQuantity: 0 };
+const materialVoucher: InventoryItem = { ...legacyBoard, materialId: 'MAT-BOARD', materialName: 'Tấm cũ' };
+const equipmentVoucher: InventoryItem = { ...legacyBoard, id: 'NK-EQ', itemKind: 'equipment', materialName: 'Máy khoan cũ', unit: 'Cái' };
+const equipment = { id: 'EQ-1', name: 'Máy khoan cũ', displayName: 'Máy khoan Bosch' };
+const names = createWarehouseDisplayNames([renamedNorm], [equipment]);
+const raw = Object.freeze([Object.freeze(materialVoucher), Object.freeze(equipmentVoucher)]);
+const snapshot = JSON.stringify(raw);
+assert.equal(names.forItem(materialVoucher), 'Tấm mới');
+assert.equal(names.forItem({ ...materialVoucher, materialId: 'NORM-1' }), 'Tấm mới');
+assert.equal(names.forItem({ ...materialVoucher, materialId: 'MAT-NORM-1' }), 'Tấm mới');
+assert.equal(names.forItem({ ...materialVoucher, materialId: 'other' }), 'Tấm cũ');
+assert.equal(names.forItem({ ...materialVoucher, materialId: undefined }), 'Tấm cũ', 'no guessing renamed legacy rows');
+assert.equal(names.forItem({ ...materialVoucher, unit: 'Bộ' }), 'Tấm cũ', 'never cross units');
+assert.equal(names.forItem(equipmentVoucher), 'Máy khoan Bosch');
+assert.equal(names.forItem({ ...equipmentVoucher, unit: 'Bộ' }), 'Máy khoan Bosch');
+assert.equal(names.forItem({ ...equipmentVoucher, materialName: 'Máy khoan Bosch' }), 'Máy khoan Bosch');
+assert.equal(names.sameIdentity({ ...materialVoucher, materialName: 'Tấm mới' }, materialVoucher), true);
+assert.equal(names.sameIdentity(materialVoucher, { ...materialVoucher, materialId: 'NORM-1' }), true);
+assert.equal(names.sameIdentity(materialVoucher, { ...materialVoucher, materialId: 'OTHER' }), false);
+assert.equal(names.sameIdentity(materialVoucher, { ...materialVoucher, materialId: undefined }), false);
+assert.equal(names.sameIdentity(materialVoucher, { ...materialVoucher, materialName: 'Tấm mới', materialId: undefined }), true);
+assert.equal(names.sameIdentity(equipmentVoucher, { ...equipmentVoucher, unit: 'Bộ' }), false);
+assert.equal(names.sameIdentity(equipmentVoucher, { ...equipmentVoucher, materialName: 'Máy khoan Bosch' }), false);
+assert.equal(createWarehouseDisplayNames([renamedNorm, { ...renamedNorm, id: 'NORM-2', materialName: 'Mâu thuẫn' }]).forItem(materialVoucher), 'Tấm cũ');
+assert.equal(createWarehouseDisplayNames([{ ...renamedNorm, deletedAt: 123 }]).forItem(materialVoucher), 'Tấm cũ');
+assert.equal(createWarehouseDisplayNames([], [equipment, { ...equipment, id: 'EQ-2' }]).forItem(equipmentVoucher), 'Máy khoan cũ');
+assert.equal(createWarehouseDisplayNames([], [{ ...equipment, deletedAt: 123 }]).forItem(equipmentVoucher), 'Máy khoan cũ');
+const displayCopies = raw.map(names.forPresentation);
+assert.equal(displayCopies[0].materialName, 'Tấm mới');
+assert.equal(displayCopies[1].materialName, 'Máy khoan Bosch');
+for (let i = 0; i < raw.length; i++) {
+  const { materialName: originalName, ...originalFields } = raw[i];
+  const { materialName: currentName, ...displayFields } = displayCopies[i];
+  assert.deepEqual(displayFields, originalFields, 'presentation changes only the name');
+  assert.equal(calculateWarehouseLedgerOnHand([...raw], getWarehouseMaterialKey(raw[i])), raw[i].quantity);
+}
+assert.equal(JSON.stringify(raw), snapshot, 'original vouchers and ledger identity are untouched');
+const renamedAgain = createWarehouseDisplayNames([{ ...renamedNorm, materialName: 'Tấm lần 2' }], [{ ...equipment, displayName: 'Máy khoan lần 2' }]);
+assert.equal(renamedAgain.forItem(materialVoucher), 'Tấm lần 2');
+assert.equal(renamedAgain.forItem(equipmentVoucher), 'Máy khoan lần 2');
+console.log('WAREHOUSE DISPLAY NAME GOLDEN PASS: stable IDs, aliases, unit/kind/duplicate/deleted guards, immutable receipt copies, rename twice, ledger unchanged');
