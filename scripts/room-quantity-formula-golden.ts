@@ -230,3 +230,15 @@ assert.match(mobileSubQuantityCss,/select\[data-hnl-sub-count-unit="true"\] \{\s
 assert.ok(mobileSubQuantityCss.includes('grid-column: 1 / -1;'));
 assert.ok(modal.includes('data-hnl-sub-unit-spacing="true"'));
 console.log('Mobile child quantity column alignment source Golden PASS');
+
+// PC child quantity columns use a single field track: no empty touch-help column.
+const pcSubQuantityCss=helpCss.slice(helpCss.indexOf('/* Fine-pointer PC child quantity columns:'));
+assert.ok(pcSubQuantityCss.startsWith('/* Fine-pointer PC child quantity columns:'));
+assert.ok(pcSubQuantityCss.includes('@media (hover: hover) and (pointer: fine)'));
+assert.ok(pcSubQuantityCss.includes('grid-template-columns: var(--hnl-pc-sub-quantity-label-width) minmax(0, 1fr);'));
+assert.ok(pcSubQuantityCss.includes('grid-template-columns: minmax(0, 1fr);'));
+assert.ok(pcSubQuantityCss.includes('max-width: 24rem;'));
+assert.ok(pcSubQuantityCss.includes('grid-column: 2;\n    margin-left: 0;'));
+assert.ok(!pcSubQuantityCss.includes('hnl-quantity-touch-help'));
+assert.ok(pcSubQuantityCss.includes('grid-column: 1 / -1;'));
+console.log('PC child quantity column alignment source Golden PASS');
